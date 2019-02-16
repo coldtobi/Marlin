@@ -54,6 +54,7 @@
 #include "../../module/printcounter.h"
 #include "../../libs/duration_t.h"
 #include "../../HAL/shared/Delay.h"
+#include "../../module/printcounter.h"
 
 #if ENABLED(PRINTCOUNTER)
   #include "../../core/utility.h"
@@ -748,6 +749,7 @@ namespace ExtUI {
 } // namespace ExtUI
 
 // At the moment, we piggy-back off the ultralcd calls, but this could be cleaned up in the future
+#if DISABLED(DEBUG_DGUSLCD)
 
 void MarlinUI::init() {
   #if ENABLED(SDSUPPORT) && PIN_EXISTS(SD_DETECT)
@@ -791,5 +793,7 @@ void MarlinUI::kill_screen(PGM_P const msg) {
     ExtUI::onPrinterKilled(msg);
   }
 }
+
+#endif
 
 #endif // EXTENSIBLE_UI

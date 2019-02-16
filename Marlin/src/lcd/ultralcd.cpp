@@ -22,6 +22,8 @@
 
 #include "../inc/MarlinConfigPre.h"
 
+#if DISABLED(DGUS_LCD)
+
 // These displays all share the MarlinUI class
 #if HAS_SPI_LCD || ENABLED(MALYAN_LCD) || ENABLED(EXTENSIBLE_UI)
   #include "ultralcd.h"
@@ -1322,3 +1324,5 @@ void MarlinUI::update() {
   }
 
 #endif // HAS_SPI_LCD || EXTENSIBLE_UI
+
+#endif // DGUS_LCD

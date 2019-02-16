@@ -1923,7 +1923,57 @@
 // packaged with Marlin. Source code for the user interface will need to
 // be placed in "src/lcd/extensible_ui/lib"
 //
-//#define EXTENSIBLE_UI
+// #define EXTENSIBLE_UI
+
+
+// DGUS based serial touchscreen LCDs.
+// WORK IN PROGRESS -- EXPERIMENTAL.
+//
+// NOTE: This serial LCDs store the UI on the display as bitmaps
+// and contain also logic for the UI. They also need be programmed
+// to work.
+//
+// Note: Implemented for a 4.3" T5UID1, sourced from FSYETC.COM,
+// which is apparently a DGUS_II display.
+//
+// more information on the technology, Design Software can be found here:
+// http://www.ampdisplay.com/download1.php?cat=HMI%20UART(DWIN)&sub_cat=DGUS
+// http://www.dwin.com.cn/home/English/download?cate_id=2
+
+// NOTE: Currently no UTF-8 support (the font on the display does seems not to have it)
+
+#define DGUS_LCD
+
+#if ENABLED(DGUS_LCD)
+
+// UART to be used.
+#define DGUS_SER_PORT 2
+
+// Baudrate for the DGUS Protocol.
+constexpr long DGUS_BAUDRATE = 115200;
+
+// Note Rx Buffer must be at least one telegram size for read remote data...
+// Must be a power of 2.
+// 32 or 64 is recommended. (but should also work with
+// 16, at the risk of missing touch events)
+#define DGUS_RX_BUFFER_SIZE 64
+
+// We talk a lot to the display and this TX buffer allows us to do that
+// without much burning too much time in a waiting loop.
+// Must be a power of 2, recommend to be minimum 16 bytes, better 32.
+#define DGUS_TX_BUFFER_SIZE  32
+
+// How often send data to the display.
+// (We are not (yet) event driven...)
+#define DGUS_UPDATE_INTERVAL_MS (1000)
+
+//Main switch for debug code
+// This will litter the serial console with debug information, useful only
+// for making your own LCD design and debugging the DGUS_LCD code.
+#define DEBUG_DGUSLCD
+
+#endif
+
 
 //=============================================================================
 //=============================== Graphical TFTs ==============================
