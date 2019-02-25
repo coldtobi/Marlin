@@ -21,7 +21,7 @@
 
 #include "../../../inc/MarlinConfigPre.h"
 
-#if ENABLED(EXTENSIBLE_UI)
+#if ENABLED(EXTENSIBLE_UI) && DISABLED(DGUS_LCD)
 
 #include "../ui_api.h"
 

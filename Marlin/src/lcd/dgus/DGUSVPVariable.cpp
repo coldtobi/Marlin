@@ -1,10 +1,14 @@
-/*
+/**
  * DGUSVPVariable.cpp
  *
  *  Created on: Feb 9, 2019
  *      Author: tobi
  */
 
+#include "../../inc/MarlinConfigPre.h"
+
+#if ENABLED(DGUS_LCD)
+
 #include "DGUSVPVariable.h"
 
-// currently empty.
+#endif // DGUS_LCD

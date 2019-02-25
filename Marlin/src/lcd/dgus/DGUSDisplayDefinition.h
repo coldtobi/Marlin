@@ -19,116 +19,108 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
-
 #pragma once
 
-#include "../../inc/MarlinConfigPre.h"
+/* DGUS implementation written by coldtobi in 2019 for Marlin */
 
-#if ENABLED(DGUS_LCD)
+#include "DGUSVPVariable.h"
 
-  /* DGUS implementation written by coldtobi in 2019 for Marlin */
+// This file defines the interaction between Marlin and the display firmware.
 
-  #include "DGUSVPVariable.h"
-  #include "DGUSDisplay.h"
+// information on which screen which VP is displayed
+// As this is a sparse table, two arrays are needed:
+// one to list the VPs of one screen and one to map screens to the lists.
+// (Strictly this would not be necessary, but allows to only send data the display needs and reducing load on Marlin)
+struct VPMapping {
+  const uint8_t screen;
+  const uint16_t *VPList;  // The list is null-terminated.
+};
 
-  // This file defines the interaction between Marlin and the display firmware.
+extern const struct VPMapping VPMap[];
 
-  // information on which screen which VP is displayed
-  // As this is a sparse table, two arrays are needed:
-  // one to list the VPs of one screen and one to map screens to the lists.
-  // (Strictly this would not be necessary, but allows to only send data the display needs and reducing load on Marlin)
-  struct VPMapping {
-    const uint8_t screen;
-    const uint16_t *VPList;  // The list is null-terminated.
-  };
+enum DGUSLCD_Screens : uint8_t {
+  DGUSLCD_SCREEN_BOOT = 0,
+  DGUSLCD_SCREEN_MAIN = 10,
+  DGUSLCD_SCREEN_TEMPERATURE = 20,
+  DGUSLCD_SCREEN_STATUS = 30,
+  DGUSLCD_SCREEN_MANUALMOVE = 40,
+  DGUSLCD_SCREEN_KILL = 250, ///< Kill Screen. Must always be 250 (to be able to display "Error wrong LCD Version")
+  DGUSLCD_SCREEN_POPUP = 252,  ///< special target, popup screen will also return this code to say "return to previous screen"
+  DGUSLDC_SCREEN_UNUSED = 255
+};
 
-  extern const struct VPMapping VPMap[];
+// Display Memory layout used (T5UID)
+// Except system variables this is arbitrary, just to organize stuff....
 
-  enum DGUSLCD_Screens : uint8_t {
-    DGUSLCD_SCREEN_BOOT = 0,
-    DGUSLCD_SCREEN_MAIN = 10,
-    DGUSLCD_SCREEN_TEMPERATURE = 20,
-    DGUSLCD_SCREEN_STATUS = 30,
-    DGUSLCD_SCREEN_MANUALMOVE = 40,
-    DGUSLCD_SCREEN_KILL = 250, ///< Kill Screen. Must always be 250 (to be able to display "Error wrong LCD Version")
-    DGUSLCD_SCREEN_POPUP = 252,  ///< special target, popup screen will also return this code to say "return to previous screen"
-    DGUSLDC_SCREEN_UNUSED = 255
-  };
+// 0x0000 .. 0x0FFF  -- System variables and reserved by the display
+// 0x1000 .. 0x1FFF  -- Variables to never change location, regardless of UI Version
+// 0x2000 .. 0x2FFF  -- Controls (VPs that will trigger some action)
+// 0x3000 .. 0x4FFF  -- Marlin Data to be displayed
+// 0x5000 ..         -- SPs (if we want to modify display elements, e.g change color or like) -- currently unused
 
-  // Display Memory layout used (T5UID)
-  // Except system variables this is arbitrary, just to organize stuff....
+// As there is plenty of space (at least most displays have >8k RAM), we do not pack them too tight,
+// so that we can keep variables nicely together in the address space.
 
-  // 0x0000 .. 0x0FFF  -- System variables and reserved by the display
-  // 0x1000 .. 0x1FFF  -- Variables to never change location, regardless of UI Version
-  // 0x2000 .. 0x2FFF  -- Controls (VPs that will trigger some action)
-  // 0x3000 .. 0x4FFF  -- Marlin Data to be displayed
-  // 0x5000 ..         -- SPs (if we want to modify display elements, e.g change color or like) -- currently unused
+// UI Version always on 0x1000 so that the firmware can check this and bail out.
+constexpr uint16_t VP_UI_VERSION = 0x1000; // <Mayor*1000>+Minor -- displayed on bootscreen. This is 4 bytes.
 
-  // As there is plenty of space (at least most displays have >8k RAM), we do not pack them too tight,
-  // so that we can keep variables nicely together in the address space.
+constexpr uint16_t VP_SCREENCHANGE = 0x2001;   // Key-Return button to new menu pressed. Data contains target screen in low byte and info in high byte.
+constexpr uint16_t VP_TEMP_ALL_OFF = 0x2002;   // Turn all heaters off. Value arbitrary ;)=
 
-  // UI Version always on 0x1000 so that the firmware can check this and bail out.
-  constexpr uint16_t VP_UI_VERSION = 0x1000; // <Mayor*1000>+Minor -- displayed on bootscreen. This is 4 bytes.
+// Controls for movement (we can't use the incremental / decremental feature of the display at this feature works only with 16 bit values
+// (which would limit us to 655.35mm, which is likely not a problem for common setups, but i don't want to rule out hangprinters support)
+// A word about the coding: The VP will be per axis and the return code will be an signed 16 bit value in 0.01 mm resolution, telling us
+// the relative travel amount t he user wants to do. So eg. if the display sends us VP=2100 with value 100, the user wants us to move X by +1 mm.
+constexpr uint16_t VP_MOVE_X = 0x2100;
+constexpr uint16_t VP_MOVE_Y = 0x2110;
+constexpr uint16_t VP_MOVE_Z = 0x2120;
+constexpr uint16_t VP_HOME_ALL = 0x2130;
 
-  constexpr uint16_t VP_SCREENCHANGE = 0x2001;   // Key-Return button to new menu pressed. Data contains target screen in low byte and info in high byte.
-  constexpr uint16_t VP_TEMP_ALL_OFF = 0x2002;   // Turn all heaters off. Value arbitrary ;)=
+// Storage space for the Killscreen messages. 0x1100 - 0x1200 . Reused for the popup.
+constexpr uint16_t VP_MSGSTR1 = 0x1100;
+constexpr uint8_t VP_MSGSTR1_LEN = 0x20;  // might be more place for it...
+constexpr uint16_t VP_MSGSTR2 = 0x1140;
+constexpr uint8_t VP_MSGSTR2_LEN = 0x20;
+constexpr uint16_t VP_MSGSTR3 = 0x1180;
+constexpr uint8_t VP_MSGSTR3_LEN = 0x20;
+constexpr uint16_t VP_MSGSTR4 = 0x11C0;
+constexpr uint8_t VP_MSGSTR4_LEN = 0x20;
 
-  // Controls for movement (we can't use the incremental / decremental feature of the display at this feature works only with 16 bit values
-  // (which would limit us to 655.35mm, which is likely not a problem for common setups, but i don't want to rule out hangprinters support)
-  // A word about the coding: The VP will be per axis and the return code will be an signed 16 bit value in 0.01 mm resolution, telling us
-  // the relative travel amount t he user wants to do. So eg. if the display sends us VP=2100 with value 100, the user wants us to move X by +1 mm.
-  constexpr uint16_t VP_MOVE_X = 0x2100;
-  constexpr uint16_t VP_MOVE_Y = 0x2110;
-  constexpr uint16_t VP_MOVE_Z = 0x2120;
-  constexpr uint16_t VP_HOME_ALL = 0x2130;
+// Firmware version on the boot screen.
+constexpr uint16_t VP_MARLIN_VERSION = 0x3000;
+constexpr uint8_t VP_MARLIN_VERSION_LEN = 16;   // there is more space on the display, if needed.
 
-  // Storage space for the Killscreen messages. 0x1100 - 0x1200 . Reused for the popup.
-  constexpr uint16_t VP_MSGSTR1 = 0x1100;
-  constexpr uint8_t VP_MSGSTR1_LEN = 0x20;  // might be more place for it...
-  constexpr uint16_t VP_MSGSTR2 = 0x1140;
-  constexpr uint8_t VP_MSGSTR2_LEN = 0x20;
-  constexpr uint16_t VP_MSGSTR3 = 0x1180;
-  constexpr uint8_t VP_MSGSTR3_LEN = 0x20;
-  constexpr uint16_t VP_MSGSTR4 = 0x11C0;
-  constexpr uint8_t VP_MSGSTR4_LEN = 0x20;
+// Place for status messages.
+constexpr uint16_t VP_M117 = 0x3040;
+constexpr uint8_t VP_M117_LEN = 0x20;
 
-  // Firmware version on the boot screen.
-  constexpr uint16_t VP_MARLIN_VERSION = 0x3000;
-  constexpr uint8_t VP_MARLIN_VERSION_LEN = 16;   // there is more space on the display, if needed.
+// Temperatures.
+constexpr uint16_t VP_T_E1_Is = 0x3080;  // 4 Byte Integer
+constexpr uint16_t VP_T_E1_Set = 0x3082; // 2 Byte Integer
+constexpr uint16_t VP_T_E2_Is = 0x3084;  // 4 Byte Integer
+constexpr uint16_t VP_T_E2_Set = 0x3086; // 2 Byte Integer
 
-  // Place for status messages.
-  constexpr uint16_t VP_M117 = 0x3040;
-  constexpr uint8_t VP_M117_LEN = 0x20;
+constexpr uint16_t VP_T_Bed_Is = 0x3090;  // 4 Byte Integer
+constexpr uint16_t VP_T_Bed_Set = 0x3092; // 2 Byte Integer
 
-  // Temperatures.
-  constexpr uint16_t VP_T_E1_Is = 0x3080;  // 4 Byte Integer
-  constexpr uint16_t VP_T_E1_Set = 0x3082; // 2 Byte Integer
-  constexpr uint16_t VP_T_E2_Is = 0x3084;  // 4 Byte Integer
-  constexpr uint16_t VP_T_E2_Set = 0x3086; // 2 Byte Integer
+constexpr uint16_t VP_Fan_Percentage = 0x3100;  // 2 Byte Integer (0..100)
+constexpr uint16_t VP_Feedrate_Percentage = 0x3102; // 2 Byte Integer (0..100)
+constexpr uint16_t VP_PrintProgress_Percentage = 0x3104; // 2 Byte Integer (0..100)
 
-  constexpr uint16_t VP_T_Bed_Is = 0x3090;  // 4 Byte Integer
-  constexpr uint16_t VP_T_Bed_Set = 0x3092; // 2 Byte Integer
+// Actual Position
+constexpr uint16_t VP_XPos = 0x3110;  // 4 Byte Fixed point number; format xxx.yy
+constexpr uint16_t VP_YPos = 0x3112;  // 4 Byte Fixed point number; format xxx.yy
+constexpr uint16_t VP_ZPos = 0x3114;  // 4 Byte Fixed point number; format xxx.yy
 
-  constexpr uint16_t VP_Fan_Percentage = 0x3100;  // 2 Byte Integer (0..100)
-  constexpr uint16_t VP_Feedrate_Percentage = 0x3102; // 2 Byte Integer (0..100)
-  constexpr uint16_t VP_PrintProgress_Percentage = 0x3104; // 2 Byte Integer (0..100)
+// SPs for certain variables...
+// located at 0x5000 and up
+// Not used yet (list is also incommplete)
+// This can be used e.g to make controls / data display invisible
+constexpr uint16_t SP_T_E1_Is = 0x5000;
+constexpr uint16_t SP_T_E1_Set = 0x5010;
+constexpr uint16_t SP_T_E2_Is = 0x5020;
+constexpr uint16_t SP_T_Bed_Is = 0x5030;
+constexpr uint16_t SP_T_Bed_Set = 0x5040;
 
-  // Actual Position
-  constexpr uint16_t VP_XPos = 0x3110;  // 4 Byte Fixed point number; format xxx.yy
-  constexpr uint16_t VP_YPos = 0x3112;  // 4 Byte Fixed point number; format xxx.yy
-  constexpr uint16_t VP_ZPos = 0x3114;  // 4 Byte Fixed point number; format xxx.yy
-
-  // SPs for certain variables...
-  // located at 0x5000 and up
-  // Not used yet (list is also incommplete)
-  // This can be used e.g to make controls / data display invisible
-  constexpr uint16_t SP_T_E1_Is = 0x5000;
-  constexpr uint16_t SP_T_E1_Set = 0x5010;
-  constexpr uint16_t SP_T_E2_Is = 0x5020;
-  constexpr uint16_t SP_T_Bed_Is = 0x5030;
-  constexpr uint16_t SP_T_Bed_Set = 0x5040;
-
-  // List of VPs handled by Marlin / The Display.
-  extern const struct DGUS_VP_Variable ListOfVP[];
-
-  #endif
+// List of VPs handled by Marlin / The Display.
+extern const struct DGUS_VP_Variable ListOfVP[];

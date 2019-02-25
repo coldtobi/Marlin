@@ -20,267 +20,272 @@
  *
  */
 
+/* DGUS implementation written by coldtobi in 2019 for Marlin */
+
 #include "../../inc/MarlinConfigPre.h"
 
-  #if ENABLED(DGUS_LCD)
+#if ENABLED(DGUS_LCD)
 
-  /* DGUS implementation written by coldtobi in 2019 for Marlin */
+#include "DGUSDisplay.h"
+#include "DGUSVPVariable.h"
+#include "DGUSDisplayDefinition.h"
 
-  #include "../../Marlin.h"
-  #include "../../module/temperature.h"
-  #include "../../module/motion.h"
-  #include "../../gcode/queue.h"
+#include "../extensible_ui/ui_api.h"
 
-  #include "../extensible_ui/ui_api.h"
+#include "../../Marlin.h"
+#include "../../module/temperature.h"
+#include "../../module/motion.h"
+#include "../../gcode/queue.h"
 
-  #include "DGUSDisplay.h"
-  #include "DGUSVPVariable.h"
-  #include "DGUSDisplayDefinition.h"
+// Preamble... 2 Bytes, usually 0x5A 0xA5, but configurable
+constexpr uint8_t DGUS_HEADER1 = 0x5A;
+constexpr uint8_t DGUS_HEADER2 = 0xA5;
 
-  // Preaamble... 2 Bytes, usually 0x5A 0xA5, but configureable.
-  constexpr uint8_t DGUS_HEADER1 = 0x5A;
-  constexpr uint8_t DGUS_HEADER2 = 0xA5;
+constexpr uint8_t DGUS_CMD_WRITEVAR = 0x82;
+constexpr uint8_t DGUS_CMD_READVAR = 0x83;
 
-  constexpr uint8_t DGUS_CMD_WRITEVAR = 0x82;
-  constexpr uint8_t DGUS_CMD_READVAR = 0x83;
+#if ENABLED(DEBUG_DGUSLCD)
+  bool dguslcd_local_debug; // = false;
+#endif
 
-  #if ENABLED(DEBUG_DGUSLCD)
-    bool dguslcd_local_debug = DEBUG_DGUSLCD_DEFAULTON;
-  #endif
+DGUSScreenVariableHandler ScreenHandler;
 
-  DGUSScreenVariableHandler ScreenHandler;
-  DGUSDisplay dgusdisplay;
+DGUSLCD_Screens DGUSScreenVariableHandler::current_screen;
+DGUSLCD_Screens DGUSScreenVariableHandler::past_screens[NUM_PAST_SCREENS];
+uint8_t DGUSScreenVariableHandler::update_ptr;
+uint16_t DGUSScreenVariableHandler::skipVP;
+bool DGUSScreenVariableHandler::ScreenComplete;
+
+DGUSDisplay dgusdisplay;
+
+rx_datagram_state_t DGUSDisplay::rx_datagram_state = DGUS_IDLE;
+uint8_t DGUSDisplay::rx_datagram_len = 0;
+bool DGUSDisplay::Initialized = false;
+bool DGUSDisplay::no_reentrance = false;
+
+#if DGUS_RX_BUFFER_SIZE > 256
+  typedef uint16_t r_ring_buffer_pos_t;
+#else
+  typedef uint8_t r_ring_buffer_pos_t;
+#endif
+
+#if DGUS_TX_BUFFER_SIZE > 256
+  typedef uint16_t t_ring_buffer_pos_t;
+#else
+  typedef uint8_t t_ring_buffer_pos_t;
+#endif
+
+class DGUSSerial {
+public:
+  DGUSSerial();
+  ~DGUSSerial();
+
+  r_ring_buffer_pos_t available();
+  t_ring_buffer_pos_t GetTxBufferFree();
+  void write(const uint8_t c);
+
+  int read();
+
+  // ISR for Rx
+  void store_rxd_char();
+  // ISR for Tx (UDRE vector)
+  void tx_udr_empty_irq(void);
+
+  inline volatile bool is_rx_overrun() {
+    return dgus_rx_overrun;
+  }
+
+  inline void reset_rx_overun() {
+    dgus_rx_overrun = false;
+  }
+
+private:
+  r_ring_buffer_pos_t atomic_read_rx_head();
+  void atomic_set_rx_tail(r_ring_buffer_pos_t value);
+  r_ring_buffer_pos_t atomic_read_rx_tail();
+
+  volatile bool dgus_rx_overrun = false;
+
+  struct ring_buffer_r {
+    volatile r_ring_buffer_pos_t head, tail;
+    unsigned char buffer[DGUS_RX_BUFFER_SIZE];
+  } rx_buffer = { 0, 0, { 0 } };
+
+  struct ring_buffer_t {
+    volatile t_ring_buffer_pos_t head, tail;
+    unsigned char buffer[DGUS_TX_BUFFER_SIZE];
+  } tx_buffer = { 0, 0, { 0 } };
 
   #if DGUS_RX_BUFFER_SIZE > 256
-    typedef uint16_t r_ring_buffer_pos_t;
-  #else
-    typedef uint8_t r_ring_buffer_pos_t;
+    volatile bool rx_tail_value_not_stable = false;
+    volatile uint16_t rx_tail_value_backup = 0;
   #endif
 
-  #if DGUS_TX_BUFFER_SIZE > 256
-    typedef uint16_t t_ring_buffer_pos_t;
-  #else
-    typedef uint8_t t_ring_buffer_pos_t;
+};
+
+static DGUSSerial dgusserial;
+
+// endianess swap
+uint16_t swap16(uint16_t value) {
+  return (value & 0xffU) << 8U | (value >> 8U);
+}
+
+bool populate_VPVar(uint16_t VP, DGUS_VP_Variable *ramcopy) {
+  // DGUS_ECHOPAIR("populate_VPVar ", VP);
+  const DGUS_VP_Variable *pvp = DGUSLCD_FindVPVar(VP);
+  // DGUS_ECHOLNPAIR(" pvp ", (uint16_t )pvp);
+  if (!pvp) return false;
+  memcpy_P(ramcopy, pvp, sizeof(DGUS_VP_Variable));
+  return true;
+}
+
+// Send a 8 bit or 16 bit value to the display.
+void DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay(DGUS_VP_Variable &ref_to_this) {
+  if (ref_to_this.memadr) {
+    //DGUS_ECHOPAIR(" DGUS_LCD_SendWordValueToDisplay ", ref_to_this.VP);
+    //DGUS_ECHOLNPAIR(" data ", *(uint16_t *)ref_to_this.memadr);
+    uint8_t *tmp = (uint8_t *) ref_to_this.memadr;
+    uint16_t data_to_send = (tmp[0] << 8);
+    if (ref_to_this.size >= 1) {
+      data_to_send |= tmp[1];
+    }
+    dgusdisplay.WriteVariable(ref_to_this.VP, data_to_send);
+  }
+}
+
+// Send an uint8_t between 0 and 255 to the display, but scale to a percentage (0..100)
+void DGUSScreenVariableHandler::DGUSLCD_SendPercentageToDisplay(DGUS_VP_Variable &ref_to_this) {
+  if (ref_to_this.memadr) {
+    //DGUS_ECHOPAIR(" DGUS_LCD_SendWordValueToDisplay ", ref_to_this.VP);
+    //DGUS_ECHOLNPAIR(" data ", *(uint16_t *)ref_to_this.memadr);
+    uint16_t tmp = *(uint8_t *) ref_to_this.memadr;
+    tmp = (tmp * 100) / 255;
+    uint16_t data_to_send = swap16(tmp);
+    dgusdisplay.WriteVariable(ref_to_this.VP, data_to_send);
+  }
+}
+
+// Sends a (RAM located) string to the DGUS Display
+// (Note: The DGUS Display does not clear after the \0, you have to
+// overwrite the remainings with spaces.// ref_to_this.size has the display buffer size!
+void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(DGUS_VP_Variable &ref_to_this) {
+  if (ref_to_this.memadr) {
+    //DGUS_ECHOPAIR(" SendStringToDisplay ", ref_to_this.VP);
+    char *tmp = (char*) ref_to_this.memadr;
+    dgusdisplay.WriteVariable(ref_to_this.VP, tmp, ref_to_this.size, true);
+  }
+}
+
+// Sends a (flash located) string to the DGUS Display
+// (Note: The DGUS Display does not clear after the \0, you have to
+// overwrite the remainings with spaces.// ref_to_this.size has the display buffer size!
+void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable &ref_to_this) {
+  if (ref_to_this.memadr) {
+    //DGUS_ECHOPAIR(" SendStringToDisplayPGM ", ref_to_this.VP);
+    char *tmp = (char*) ref_to_this.memadr;
+    dgusdisplay.WriteVariablePGM(ref_to_this.VP, tmp, ref_to_this.size, true);
+  }
+}
+
+const uint16_t* DGUSLCD_FindScreenVPMapList(uint8_t screen) {
+  const uint16_t* ret;
+  const struct VPMapping* map = VPMap;
+  while (ret = (uint16_t*) pgm_read_word(&(map->VPList))) {
+    if (pgm_read_byte(&(map->screen)) == screen) return ret;
+    map++;
+  }
+  return nullptr;
+}
+
+const DGUS_VP_Variable* DGUSLCD_FindVPVar(uint16_t vp) {
+  const DGUS_VP_Variable *ret = ListOfVP;
+  do {
+    uint16_t vpcheck = pgm_read_word(&(ret->VP));
+    //DGUS_ECHOPAIR(" vpcheck=", vpcheck);
+    if (vpcheck == 0) break;
+    if (vpcheck == vp) {
+      //DGUS_ECHOLNPAIR(" FOUND ", vp);
+      //DGUS_ECHOLNPAIR(" @", (uint16_t) ret);
+      return ret;
+    }
+    ++ret;
+  } while (1);
+
+  DGUS_ECHOLNPAIR("FindVPVar NOT FOUND ", vp);
+  return nullptr;
+}
+
+void DGUSScreenVariableHandler::ScreenChangeHook(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
+  uint8_t *tmp = (uint8_t*) ptr_to_new_value;
+
+  // The keycode in target is coded as <from-frame><to-frame>, so 0x0100A means
+  // from screen 1 (main) to 10 (temperature). DGUSLCD_SCREEN_POPUP is special,
+  // meaning "return to previous screen"
+  DGUSLCD_Screens target = (DGUSLCD_Screens) tmp[1];
+
+  if (target == DGUSLCD_SCREEN_POPUP) {
+    // special handling for popup is to return to previous menu
+    DGUS_ECHOLNPAIR("popup return to ", past_screens[0]);
+    PopToOldScreen();
+    return;
+  }
+
+  DGUS_ECHOLNPAIR("requesting new screen ", target);
+  UpdateNewScreen(target);
+
+  #ifdef DEBUG_DGUSLCD
+    auto x = DGUSLCD_FindScreenVPMapList(target);
+    if (!x) DGUS_ECHOLNPAIR("WARNING: No screen Mapping found for ", x);
   #endif
+}
 
-  class DGUSSerial {
-  public:
-    DGUSSerial();
-    ~DGUSSerial();
+void DGUSScreenVariableHandler::HandleAllHeatersOff(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
+  thermalManager.disable_all_heaters();
+  ScreenHandler.ForceCompleteUpdate(); // hint to send all data.
+}
 
-    r_ring_buffer_pos_t available();
-    t_ring_buffer_pos_t GetTxBufferFree();
-    void write(const uint8_t c);
+void DGUSScreenVariableHandler::HandleTemperatureChanged(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
+  uint16_t newvalue = swap16(*(uint16_t*) ptr_to_new_value);
+  uint16_t acceptedvalue;
+  DGUS_ECHOLNPAIR("value=", newvalue);
+  DGUS_ECHOLNPAIR("VP=", ref_to_this.VP);
 
-    int read();
-
-    // ISR for Rx
-    void store_rxd_char();
-    // ISR for Tx (UDRE vector)
-    void tx_udr_empty_irq(void);
-
-    inline volatile bool is_rx_overrun() {
-      return dgus_rx_overrun;
-    }
-
-    inline void reset_rx_overun() {
-      dgus_rx_overrun = false;
-    }
-
-  private:
-    r_ring_buffer_pos_t atomic_read_rx_head();
-    void atomic_set_rx_tail(r_ring_buffer_pos_t value);
-    r_ring_buffer_pos_t atomic_read_rx_tail();
-
-    volatile bool dgus_rx_overrun = false;
-
-    struct ring_buffer_r {
-      volatile r_ring_buffer_pos_t head, tail;
-      unsigned char buffer[DGUS_RX_BUFFER_SIZE];
-    } rx_buffer = { 0, 0, { 0 } };
-
-    struct ring_buffer_t {
-      volatile t_ring_buffer_pos_t head, tail;
-      unsigned char buffer[DGUS_TX_BUFFER_SIZE];
-    } tx_buffer = { 0, 0, { 0 } };
-
-    #if DGUS_RX_BUFFER_SIZE > 256
-      volatile bool rx_tail_value_not_stable = false;
-      volatile uint16_t rx_tail_value_backup = 0;
+  switch (ref_to_this.VP) {
+    #if HOTENDS >= 1
+      case VP_T_E1_Set:
+        thermalManager.setTargetHotend(newvalue, 0);
+        acceptedvalue = thermalManager.target_temperature[0];
+        break;
     #endif
-
-  };
-
-  static DGUSSerial dgusserial;
-
-  // endianess swap
-  uint16_t swap16(uint16_t value) {
-    return (value & 0xffU) << 8U | (value >> 8U);
-  }
-
-  bool populate_VPVar(uint16_t VP, DGUS_VP_Variable *ramcopy) {
-    // DBG_DGUSLCD_SERIAL_ECHOPAIR("populate_VPVar ", VP);
-    const DGUS_VP_Variable *pvp = DGUSLCD_FindVPVar(VP);
-    // DBG_DGUSLCD_SERIAL_ECHOLNPAIR(" pvp ", (uint16_t )pvp);
-    if (!pvp) return false;
-    memcpy_P(ramcopy, pvp, sizeof(DGUS_VP_Variable));
-    return true;
-  }
-
-  // Send a 8 bit or 16 bit value to the display.
-  void DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay(DGUS_VP_Variable &ref_to_this) {
-    if (ref_to_this.memadr) {
-      //DBG_DGUSLCD_SERIAL_ECHOPAIR(" DGUS_LCD_SendWordValueToDisplay ", ref_to_this.VP);
-      //DBG_DGUSLCD_SERIAL_ECHOLNPAIR(" data ", *(uint16_t *)ref_to_this.memadr);
-      uint8_t *tmp = (uint8_t *) ref_to_this.memadr;
-      uint16_t data_to_send = (tmp[0] << 8);
-      if (ref_to_this.size >= 1) {
-        data_to_send |= tmp[1];
-      }
-      dgusdisplay.WriteVariable(ref_to_this.VP, data_to_send);
-    }
-  }
-
-  // Send an uint8_t between 0 and 255 to the display, but scale to a percentage (0..100)
-  void DGUSScreenVariableHandler::DGUSLCD_SendPercentageToDisplay(DGUS_VP_Variable &ref_to_this) {
-    if (ref_to_this.memadr) {
-      //DBG_DGUSLCD_SERIAL_ECHOPAIR(" DGUS_LCD_SendWordValueToDisplay ", ref_to_this.VP);
-      //DBG_DGUSLCD_SERIAL_ECHOLNPAIR(" data ", *(uint16_t *)ref_to_this.memadr);
-      uint16_t tmp = *(uint8_t *) ref_to_this.memadr;
-      tmp = (tmp * 100) / 255;
-      uint16_t data_to_send = swap16(tmp);
-      dgusdisplay.WriteVariable(ref_to_this.VP, data_to_send);
-    }
-  }
-
-  // Sends a (RAM located) string to the DGUS Display
-  // (Note: The DGUS Display does not clear after the \0, you have to
-  // overwrite the remainings with spaces.// ref_to_this.size has the display buffer size!
-  void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(DGUS_VP_Variable &ref_to_this) {
-    if (ref_to_this.memadr) {
-      //DBG_DGUSLCD_SERIAL_ECHOPAIR(" SendStringToDisplay ", ref_to_this.VP);
-      char *tmp = (char*) ref_to_this.memadr;
-      dgusdisplay.WriteVariable(ref_to_this.VP, tmp, ref_to_this.size, true);
-    }
-  }
-
-  // Sends a (flash located) string to the DGUS Display
-  // (Note: The DGUS Display does not clear after the \0, you have to
-  // overwrite the remainings with spaces.// ref_to_this.size has the display buffer size!
-  void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable &ref_to_this) {
-    if (ref_to_this.memadr) {
-      //DBG_DGUSLCD_SERIAL_ECHOPAIR(" SendStringToDisplayPGM ", ref_to_this.VP);
-      char *tmp = (char*) ref_to_this.memadr;
-      dgusdisplay.WriteVariablePGM(ref_to_this.VP, tmp, ref_to_this.size, true);
-    }
-  }
-
-  const uint16_t* DGUSLCD_FindScreenVPMapList(uint8_t screen) {
-    const uint16_t* ret;
-    const struct VPMapping* map = VPMap;
-    while (ret = (uint16_t*) pgm_read_word(&(map->VPList))) {
-      if (pgm_read_byte(&(map->screen)) == screen) return ret;
-      map++;
-    }
-    return nullptr;
-  }
-
-  const DGUS_VP_Variable* DGUSLCD_FindVPVar(uint16_t vp) {
-    const DGUS_VP_Variable *ret = ListOfVP;
-    do {
-      uint16_t vpcheck = pgm_read_word(&(ret->VP));
-      //DBG_DGUSLCD_SERIAL_ECHOPAIR(" vpcheck=", vpcheck);
-      if (vpcheck == 0) break;
-      if (vpcheck == vp) {
-        //DBG_DGUSLCD_SERIAL_ECHOLNPAIR(" FOUND ", vp);
-        //DBG_DGUSLCD_SERIAL_ECHOLNPAIR(" @", (uint16_t) ret);
-        return ret;
-      }
-      ++ret;
-    } while (1);
-
-    DBG_DGUSLCD_SERIAL_ECHOLNPAIR("FindVPVar NOT FOUND ", vp);
-    return nullptr;
-  }
-
-  void DGUSScreenVariableHandler::privateScreenChangeHook(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-    uint8_t *tmp = (uint8_t*) ptr_to_new_value;
-
-    // The keycode in target is coded as <from-frame><to-frame>, so 0x0100A means
-    // from screen 1 (main) to 10 (temperature). DGUSLCD_SCREEN_POPUP is special,
-    // meaning "return to previous screen"
-    DGUSLCD_Screens target = (DGUSLCD_Screens) tmp[1];
-
-    if (target == DGUSLCD_SCREEN_POPUP) {
-      // special handling for popup is to return to previous menu
-      DBG_DGUSLCD_SERIAL_ECHOLNPAIR("popup return to ", past_screens[0]);
-      PopToOldScreen();
-      return;
-    }
-
-    DBG_DGUSLCD_SERIAL_ECHOLNPAIR("requesting new screen ", target);
-    UpdateNewScreen(target);
-
-    #ifdef DEBUG_DGUSLCD
-      auto x = DGUSLCD_FindScreenVPMapList(target);
-      if (!x) DBG_DGUSLCD_SERIAL_ECHOLNPAIR("WARNING: No screen Mapping found for ", x);
-    #endif
-  }
-
-  void DGUSScreenVariableHandler::ScreenChangeHook(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-    ScreenHandler.privateScreenChangeHook(ref_to_this, ptr_to_new_value);
-  }
-
-  void DGUSScreenVariableHandler::HandleAllHeatersOff(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-    DBG_DGUSLCD_SERIAL_ECHOLN(__FUNCTION__);
-    thermalManager.disable_all_heaters();
-    ScreenHandler.ForceCompleteUpdate(); // hint to send all data.
-  }
-
-  void DGUSScreenVariableHandler::HandleTemperatureChanged(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-    DBG_DGUSLCD_SERIAL_ECHOLN(__FUNCTION__);
-    uint16_t newvalue = swap16(*(uint16_t*) ptr_to_new_value);
-    uint16_t acceptedvalue;
-    DBG_DGUSLCD_SERIAL_ECHOLNPAIR("value=", newvalue);
-    DBG_DGUSLCD_SERIAL_ECHOLNPAIR("VP=", ref_to_this.VP);
-
-    switch (ref_to_this.VP) {
-  #if HOTENDS >= 1
-    case VP_T_E1_Set:
-      thermalManager.setTargetHotend(newvalue, 0);
-      acceptedvalue = thermalManager.target_temperature[0];
-      break;
-  #endif
-  #if HOTENDS >= 2
+    #if HOTENDS >= 2
       case VP_T_E2_Set:
-      thermalManager.setTargetHotend(newvalue, 1);
-      acceptedvalue = thermalManager.target_temperature[0];
-      break;
-  #endif
-  #if HAS_HEATED_BED
-    case VP_T_Bed_Set:
-      thermalManager.setTargetBed(newvalue);
-      acceptedvalue = thermalManager.target_temperature_bed;
-      break;
-  #endif
-    default:
-      return;
-    }
-
-    // reply to display the new value to update the view if the new value was rejected by the Thermal Manager.
-    if (newvalue != acceptedvalue && ref_to_this.send_to_display_handler) ref_to_this.send_to_display_handler(ref_to_this);
-    ScreenHandler.skipVP = ref_to_this.VP; // don't overwrite value the next update time as the display might autoincrement in parallel
+        thermalManager.setTargetHotend(newvalue, 1);
+        acceptedvalue = thermalManager.target_temperature[0];
+        break;
+    #endif
+    #if HAS_HEATED_BED
+      case VP_T_Bed_Set:
+        thermalManager.setTargetBed(newvalue);
+        acceptedvalue = thermalManager.target_temperature_bed;
+        break;
+    #endif
+    default: return;
   }
 
-  void DGUSScreenVariableHandler::HandleManualMove(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-    // DGUSLCD_ScopeDebug local;
-    DBG_DGUSLCD_SERIAL_ECHO(__FUNCTION__);
+  // reply to display the new value to update the view if the new value was rejected by the Thermal Manager.
+  if (newvalue != acceptedvalue && ref_to_this.send_to_display_handler) ref_to_this.send_to_display_handler(ref_to_this);
+  ScreenHandler.skipVP = ref_to_this.VP; // don't overwrite value the next update time as the display might autoincrement in parallel
+}
 
-    int16_t movevalue = swap16(*(uint16_t*) ptr_to_new_value);
-    char axiscode;
-    unsigned int speed = 1500;  //FIXME: get default feedrate for manual moves, dont hardcode.
+void DGUSScreenVariableHandler::HandleManualMove(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
+  //DGUS_DEBUG(true);
+  DGUS_ECHOLNPGM("HandleManualMove");
 
-    switch (ref_to_this.VP) {
+  int16_t movevalue = swap16(*(uint16_t*) ptr_to_new_value);
+  char axiscode;
+  unsigned int speed = 1500;  //FIXME: get default feedrate for manual moves, dont hardcode.
+
+  switch (ref_to_this.VP) {
     case VP_MOVE_X:
       axiscode = 'X';
       if (!ExtUI::canMove(ExtUI::axis_t::X)) goto cannotmove;
@@ -303,557 +308,538 @@
       break;
 
     default: return;
-    }
+  }
 
-    if (!movevalue) {
-      // homing
-      DBG_DGUSLCD_SERIAL_ECHOPAIR(" homing ", axiscode);
-      char buf[6] = "G28 X";
-      buf[4] = axiscode;
-      //DBG_DGUSLCD_SERIAL_ECHOPAIR(" ", buf);
-      while (!enqueue_and_echo_command(buf)) idle();
-      //DBG_DGUSLCD_SERIAL_ECHOLN(" ✓");
-      ScreenHandler.ForceCompleteUpdate();
-      return;
-    } else {
-      //movement
-      DBG_DGUSLCD_SERIAL_ECHOPAIR(" move ", axiscode);
-      bool old_relative_mode = relative_mode;
-      if (!relative_mode) {
-        //DBG_DGUSLCD_SERIAL_ECHO(" G91");
-        while (!enqueue_and_echo_command("G91")) idle();
-        //DBG_DGUSLCD_SERIAL_ECHO(" ✓ ");
-      }
-      char buf[32];  // G1 X9999.99 F12345
-      unsigned int backup_speed = MMS_TO_MMM(feedrate_mm_s);
-      char sign[]="\0";
-      int16_t value = movevalue / 100;
-      if (movevalue < 0) { value = -value; sign[0] = '-'; }
-      int16_t fraction = ((movevalue > 0) ? movevalue : -movevalue) % 100;
-      snprintf_P(buf, 32, PSTR("G1 %c%s%d.%02d F%d"), axiscode, sign, value, fraction, speed);
-      //DBG_DGUSLCD_SERIAL_ECHOPAIR(" ", buf);
-      while (!enqueue_and_echo_command(buf)) idle();
-      //DBG_DGUSLCD_SERIAL_ECHOLN(" ✓ ");
-      if (backup_speed != speed) {
-        snprintf_P(buf, 32, PSTR("G1 F%d"), backup_speed);
-        while (!enqueue_and_echo_command(buf)) idle();
-        //DBG_DGUSLCD_SERIAL_ECHOPAIR(" ", buf);
-      }
-      //while (!enqueue_and_echo_command(buf)) idle();
-      //DBG_DGUSLCD_SERIAL_ECHOLN(" ✓ ");
-      if (!old_relative_mode) {
-        //DBG_DGUSLCD_SERIAL_ECHO("G90");
-        while (!enqueue_and_echo_command("G90")) idle();
-        //DBG_DGUSLCD_SERIAL_ECHO(" ✓ ");
-      }
-    }
-
+  if (!movevalue) {
+    // homing
+    DGUS_ECHOPAIR(" homing ", axiscode);
+    char buf[6] = "G28 X";
+    buf[4] = axiscode;
+    //DGUS_ECHOPAIR(" ", buf);
+    while (!enqueue_and_echo_command(buf)) idle();
+    //DGUS_ECHOLN(" ✓");
     ScreenHandler.ForceCompleteUpdate();
-    DBG_DGUSLCD_SERIAL_ECHOLN("manmv done.");
-    return;
-
-    cannotmove:
-    DBG_DGUSLCD_SERIAL_ECHOLNPAIR(" cannot move ", axiscode);
     return;
   }
-
-  void DGUSScreenVariableHandler::UpdateNewScreen(DGUSLCD_Screens newscreen, bool popup) {
-    DBG_DGUSLCD_SERIAL_ECHOLNPAIR("SetNewScreen: ", newscreen);
-
-    if (!popup) {
-      memmove(&past_screens[1], &past_screens[0], sizeof(past_screens) - 1);
-      past_screens[0] = current_screen;
+  else {
+    //movement
+    DGUS_ECHOPAIR(" move ", axiscode);
+    bool old_relative_mode = relative_mode;
+    if (!relative_mode) {
+      //DGUS_ECHO(" G91");
+      while (!enqueue_and_echo_command("G91")) idle();
+      //DGUS_ECHOPGM(" ✓ ");
     }
-
-    current_screen = newscreen;
-    skipVP = 0;
-    ForceCompleteUpdate();
+    char buf[32];  // G1 X9999.99 F12345
+    unsigned int backup_speed = MMS_TO_MMM(feedrate_mm_s);
+    char sign[]="\0";
+    int16_t value = movevalue / 100;
+    if (movevalue < 0) { value = -value; sign[0] = '-'; }
+    int16_t fraction = ((movevalue > 0) ? movevalue : -movevalue) % 100;
+    snprintf_P(buf, 32, PSTR("G1 %c%s%d.%02d F%d"), axiscode, sign, value, fraction, speed);
+    //DGUS_ECHOPAIR(" ", buf);
+    while (!enqueue_and_echo_command(buf)) idle();
+    //DGUS_ECHOLN(" ✓ ");
+    if (backup_speed != speed) {
+      snprintf_P(buf, 32, PSTR("G1 F%d"), backup_speed);
+      while (!enqueue_and_echo_command(buf)) idle();
+      //DGUS_ECHOPAIR(" ", buf);
+    }
+    //while (!enqueue_and_echo_command(buf)) idle();
+    //DGUS_ECHOLN(" ✓ ");
+    if (!old_relative_mode) {
+      //DGUS_ECHO("G90");
+      while (!enqueue_and_echo_command("G90")) idle();
+      //DGUS_ECHO(" ✓ ");
+    }
   }
 
-  void DGUSScreenVariableHandler::PopToOldScreen() {
-    DBG_DGUSLCD_SERIAL_ECHOLNPAIR("PopToOldScreen s=", past_screens[0]);
-    GotoScreen(past_screens[0]);
-    memmove(&past_screens[0], &past_screens[1], sizeof(past_screens) - 1);
-    past_screens[sizeof(past_screens) - 1] = DGUSLCD_SCREEN_MAIN;
+  ScreenHandler.ForceCompleteUpdate();
+  DGUS_ECHOLNPGM("manmv done.");
+  return;
+
+  cannotmove:
+  DGUS_ECHOLNPAIR(" cannot move ", axiscode);
+  return;
+}
+
+void DGUSScreenVariableHandler::UpdateNewScreen(DGUSLCD_Screens newscreen, bool popup) {
+  DGUS_ECHOLNPAIR("SetNewScreen: ", newscreen);
+
+  if (!popup) {
+    memmove(&past_screens[1], &past_screens[0], sizeof(past_screens) - 1);
+    past_screens[0] = current_screen;
   }
 
-  bool dguslcd_local_debug_once = true;
+  current_screen = newscreen;
+  skipVP = 0;
+  ForceCompleteUpdate();
+}
 
-  void DGUSScreenVariableHandler::UpdateScreenVPData() {
-    DBG_DGUSLCD_SERIAL_ECHOPAIR(" UpdateScreenVPData Screen: ", current_screen);
+void DGUSScreenVariableHandler::PopToOldScreen() {
+  DGUS_ECHOLNPAIR("PopToOldScreen s=", past_screens[0]);
+  GotoScreen(past_screens[0]);
+  memmove(&past_screens[0], &past_screens[1], sizeof(past_screens) - 1);
+  past_screens[sizeof(past_screens) - 1] = DGUSLCD_SCREEN_MAIN;
+}
 
-    const uint16_t *VPList = DGUSLCD_FindScreenVPMapList(current_screen);
-    if (!VPList) {
-      DBG_DGUSLCD_SERIAL_ECHOLNPAIR(" NO SCREEN FOR: ", current_screen);
+void DGUSScreenVariableHandler::UpdateScreenVPData() {
+  DGUS_ECHOPAIR(" UpdateScreenVPData Screen: ", current_screen);
+
+  const uint16_t *VPList = DGUSLCD_FindScreenVPMapList(current_screen);
+  if (!VPList) {
+    DGUS_ECHOLNPAIR(" NO SCREEN FOR: ", current_screen);
+    ScreenComplete = true;
+    return;  // nothing to do, likely a bug or boring screen.
+  }
+
+  // Round-Robbin updating of all VPs.
+  VPList += update_ptr;
+
+  bool sent_one = false;
+  do {
+    uint16_t VP = pgm_read_word(VPList);
+    DGUS_ECHOPAIR(" VP: ", VP);
+    if (!VP) {
+      update_ptr = 0;
+      DGUS_ECHOLNPGM(" UpdateScreenVPData done");
       ScreenComplete = true;
-      return;  // nothing to do, likely a bug or boring screen.
+      return;  // Screen completed.
     }
 
-    // Round-Robbin updating of all VPs.
-    VPList += update_ptr;
-
-    bool sent_one = false;
-    do {
-      uint16_t VP = pgm_read_word(VPList);
-      DBG_DGUSLCD_SERIAL_ECHOPAIR(" VP: ", VP);
-      if (!VP) {
-        update_ptr = 0;
-        DBG_DGUSLCD_SERIAL_ECHOLN(" UpdateScreenVPData done");
-        ScreenComplete = true;
-        return;  // Screen completed.
-      }
-
-      if (VP == skipVP) {
-        skipVP = 0;
-        continue;
-      }
-
-      DGUS_VP_Variable rcpy;
-      if (populate_VPVar(VP, &rcpy)) {
-        uint8_t expected_tx = 6 + rcpy.size;  // expected overhead is 6 bytes + payload.
-        // Send the VP to the display, but try to avoid overruning the Tx Buffer.
-        // But send at least one VP, to avoid getting stalled.
-        if (rcpy.send_to_display_handler && (!sent_one || expected_tx <= dgusdisplay.GetFreeTxBuffer())) {
-          //DBG_DGUSLCD_SERIAL_ECHOPAIR(" calling handler for ", rcpy.VP);
-          sent_one = true;
-          rcpy.send_to_display_handler(rcpy);
-        } else {
-          //auto x=dgusdisplay.GetFreeTxBuffer();
-          //DBG_DGUSLCD_SERIAL_ECHOLNPAIR(" tx almost full: ", x);
-          //DBG_DGUSLCD_SERIAL_ECHOPAIR(" update_ptr ", update_ptr);
-          ScreenComplete = false;
-          return;  // please call again!
-        }
-      }
-
-    } while (++update_ptr, ++VPList, true);
-    return;
-  }
-
-  void DGUSDisplay::loop() {
-    // protection against recursion… ProcessRx() might call indirectly idle() when trying to injecting gcode commands
-    // when the queue is full.
-    if (!no_reentrance) {
-      no_reentrance = true;
-      ProcessRx();
-      no_reentrance = false;
-    } else {
-      //DGUSLCD_ScopeDebug local;
-      //DBG_DGUSLCD_SERIAL_ECHOLN("dgus-loop() BLOCKED");
+    if (VP == skipVP) {
+      skipVP = 0;
+      continue;
     }
+
+    DGUS_VP_Variable rcpy;
+    if (populate_VPVar(VP, &rcpy)) {
+      uint8_t expected_tx = 6 + rcpy.size;  // expected overhead is 6 bytes + payload.
+      // Send the VP to the display, but try to avoid overruning the Tx Buffer.
+      // But send at least one VP, to avoid getting stalled.
+      if (rcpy.send_to_display_handler && (!sent_one || expected_tx <= dgusdisplay.GetFreeTxBuffer())) {
+        //DGUS_ECHOPAIR(" calling handler for ", rcpy.VP);
+        sent_one = true;
+        rcpy.send_to_display_handler(rcpy);
+      }
+      else {
+        //auto x=dgusdisplay.GetFreeTxBuffer();
+        //DGUS_ECHOLNPAIR(" tx almost full: ", x);
+        //DGUS_ECHOPAIR(" update_ptr ", update_ptr);
+        ScreenComplete = false;
+        return;  // please call again!
+      }
+    }
+
+  } while (++update_ptr, ++VPList, true);
+  return;
+}
+
+void DGUSDisplay::loop() {
+  // protection against recursion… ProcessRx() might call indirectly idle() when trying to injecting gcode commands
+  // when the queue is full.
+  if (!no_reentrance) {
+    no_reentrance = true;
+    ProcessRx();
+    no_reentrance = false;
   }
+  else {
+    //DGUS_DEBUG(true)
+    //DGUS_ECHOLN("dgus-loop() BLOCKED");
+  }
+}
 
-  void DGUSDisplay::InitDisplay() {
-    DBG_DGUSLCD_SERIAL_ECHOLN(__FUNCTION__);
-
+void DGUSDisplay::InitDisplay() {
+  DGUS_ECHOLNPGM("InitDisplay");
+  RequestScreen(
     #if ENABLED(SHOW_BOOTSCREEN)
-      RequestScreen(DGUSLCD_SCREEN_BOOT);
+      DGUSLCD_SCREEN_BOOT
     #else
-      RequestScreen(DGUSLCD_SCREEN_MAIN);
+      DGUSLCD_SCREEN_MAIN
     #endif
-  }
+  );
+}
 
-  void DGUSDisplay::WriteVariable(uint16_t adr, const void* values, uint8_t valueslen, bool isstr) {
-    const char* myvalues = static_cast<const char*>(values);
-    bool strend = false;
-    WriteHeader(adr, DGUS_CMD_WRITEVAR, valueslen);
-    while (valueslen--) {
-      auto x = *myvalues++;
-      if ((isstr && !x) || strend) {
-        strend = true;
-        x = ' ';
-      }
-      dgusserial.write(x);
+void DGUSDisplay::WriteVariable(uint16_t adr, const void* values, uint8_t valueslen, bool isstr) {
+  const char* myvalues = static_cast<const char*>(values);
+  bool strend = false;
+  WriteHeader(adr, DGUS_CMD_WRITEVAR, valueslen);
+  while (valueslen--) {
+    auto x = *myvalues++;
+    if ((isstr && !x) || strend) {
+      strend = true;
+      x = ' ';
     }
+    dgusserial.write(x);
   }
+}
 
-  void DGUSDisplay::WriteVariablePGM(uint16_t adr, const void* values, uint8_t valueslen, bool isstr) {
-    const char* myvalues = static_cast<const char*>(values);
-    bool strend = false;
-    WriteHeader(adr, DGUS_CMD_WRITEVAR, valueslen);
-    while (valueslen--) {
-      uint8_t x = pgm_read_byte(myvalues++);
-      if ((isstr && !x) || strend) {
-        strend = true;
-        x = ' ';
-      }
-      dgusserial.write(x);
+void DGUSDisplay::WriteVariablePGM(uint16_t adr, const void* values, uint8_t valueslen, bool isstr) {
+  const char* myvalues = static_cast<const char*>(values);
+  bool strend = false;
+  WriteHeader(adr, DGUS_CMD_WRITEVAR, valueslen);
+  while (valueslen--) {
+    uint8_t x = pgm_read_byte(myvalues++);
+    if ((isstr && !x) || strend) {
+      strend = true;
+      x = ' ';
     }
+    dgusserial.write(x);
+  }
+}
+
+void DGUSScreenVariableHandler::GotoScreen(DGUSLCD_Screens screen) {
+  dgusdisplay.RequestScreen(screen);
+  UpdateNewScreen(screen);
+}
+
+bool DGUSScreenVariableHandler::loop() {
+
+  dgusdisplay.loop();
+
+  const millis_t ms = millis();
+  static millis_t next_event_ms = 0;
+
+  if (!IsScreenComplete() || ELAPSED(ms, next_event_ms)) {
+    next_event_ms = ms + DGUS_UPDATE_INTERVAL_MS;
+    UpdateScreenVPData();
   }
 
-  void DGUSScreenVariableHandler::GotoScreen(DGUSLCD_Screens screen) {
-    dgusdisplay.RequestScreen(screen);
-    UpdateNewScreen(screen);
-  }
-
-  bool DGUSScreenVariableHandler::loop() {
-
-    dgusdisplay.loop();
-
-    const millis_t ms = millis();
-    static millis_t next_event_ms = 0;
-
-    if (!IsScreenComplete() || ELAPSED(ms, next_event_ms)) {
-      next_event_ms = ms + DGUS_UPDATE_INTERVAL_MS;
-      UpdateScreenVPData();
+  #if ENABLED(SHOW_BOOTSCREEN)
+    static bool booted = false;
+    if (!booted && ms >= BOOTSCREEN_TIMEOUT) {
+      booted = true;
+      GotoScreen(DGUSLCD_SCREEN_MAIN);
     }
+  #endif
+  return IsScreenComplete();
+}
 
-    #if ENABLED(SHOW_BOOTSCREEN)
-      static bool booted = false;
-      if (!booted && ms >= BOOTSCREEN_TIMEOUT) {
-        booted = true;
-        GotoScreen(DGUSLCD_SCREEN_MAIN);
-      }
-    #endif
-    return IsScreenComplete();
+void DGUSDisplay::RequestScreen(DGUSLCD_Screens screen) {
+  DGUS_ECHOLNPAIR("GotoScreen ", screen);
+  const unsigned char gotoscreen[] = { 0x5A, 0x01, (unsigned char) (screen >> 8U), (unsigned char) (screen & 0xFFU) };
+  WriteVariable(0x84, gotoscreen, sizeof(gotoscreen));
+}
+
+void DGUSDisplay::ProcessRx() {
+
+  if (!dgusserial.available() && dgusserial.is_rx_overrun()) {
+    // If overrun, but reset the flag only when buffer is emptied
+    // Extract as many valid datagrams as possible...
+    DGUS_ECHOPGM("OVFL");
+    rx_datagram_state = DGUS_IDLE;
+    dgusserial.reset_rx_overun();
   }
 
-  void DGUSDisplay::RequestScreen(DGUSLCD_Screens screen) {
-    DBG_DGUSLCD_SERIAL_ECHOLNPAIR("GotoScreen ", screen);
-    const unsigned char gotoscreen[] = { 0x5A, 0x01, (unsigned char) (screen >> 8U), (unsigned char) (screen & 0xFFU) };
-    WriteVariable(0x84, gotoscreen, sizeof(gotoscreen));
-  }
+  uint8_t receivedbyte;
+  while (dgusserial.available()) {
+    switch (rx_datagram_state) {
 
-  void DGUSDisplay::ProcessRx() {
-
-    if (!dgusserial.available() && dgusserial.is_rx_overrun()) {
-      // if we've got an overrun, but reset the flag only when we've emptied the buffer
-      // We want to extract as many as valid telegrams...
-      DBG_DGUSLCD_SERIAL_ECHO("OVFL");
-      rx_telegram_state = DGUSDisplay::state::IDLE;
-      dgusserial.reset_rx_overun();
-    }
-
-    uint8_t receivedbyte;
-    while (dgusserial.available()) {
-      switch (rx_telegram_state) {
-
-      case DGUSDisplay::state::IDLE:	// Waiting for the first header byte
+      case DGUS_IDLE:	// Waiting for the first header byte
         receivedbyte = dgusserial.read();
-        //DBG_DGUSLCD_SERIAL_ECHOPAIR("< ",x);
-        rx_telegram_len = 0;
-        if (DGUS_HEADER1 == receivedbyte) rx_telegram_state = DGUSDisplay::state::HEADER1_SEEN;
+        //DGUS_ECHOPAIR("< ",x);
+        if (DGUS_HEADER1 == receivedbyte) rx_datagram_state = DGUS_HEADER1_SEEN;
         break;
 
-      case DGUSDisplay::state::HEADER1_SEEN: // Waiting for the second header byte
+      case DGUS_HEADER1_SEEN: // Waiting for the second header byte
         receivedbyte = dgusserial.read();
-        //DBG_DGUSLCD_SERIAL_ECHOPAIR(" ",x);
-        if (DGUS_HEADER2 == receivedbyte) {
-          rx_telegram_state = DGUSDisplay::state::HEADER2_SEEN;
-        } else {
-          rx_telegram_state = DGUSDisplay::state::IDLE;
-        }
+        //DGUS_ECHOPAIR(" ",x);
+        rx_datagram_state = (DGUS_HEADER2 == receivedbyte) ? DGUS_HEADER2_SEEN : DGUS_IDLE;
         break;
 
-      case DGUSDisplay::state::HEADER2_SEEN: // Waiting for the length byte
-        receivedbyte = rx_telegram_len = dgusserial.read();
-        DBG_DGUSLCD_SERIAL_ECHOPAIR(" (", receivedbyte);
-        DBG_DGUSLCD_SERIAL_ECHO(") ");
+      case DGUS_HEADER2_SEEN: // Waiting for the length byte
+        rx_datagram_len = dgusserial.read();
+        DGUS_ECHOPAIR(" (", rx_datagram_len);
+        DGUS_ECHOPGM(") ");
 
         // Telegram min len is 3 (command and one word of payload)
-        if (rx_telegram_len < 3 || rx_telegram_len > DGUS_RX_BUFFER_SIZE) {
-          rx_telegram_state = DGUSDisplay::state::IDLE;
-        }  // telegram'd be too big to fit into our RX buffer.
-        else {
-          rx_telegram_state = DGUSDisplay::state::WAIT_TELEGRAM;
-        }
+        rx_datagram_state = WITHIN(rx_datagram_len, 3, DGUS_RX_BUFFER_SIZE) ? DGUS_WAIT_TELEGRAM : DGUS_IDLE;
         break;
 
-      case DGUSDisplay::state::WAIT_TELEGRAM: // wait for complete telegram to arrive.
-        if (dgusserial.available() < rx_telegram_len) {
-          return;
-        } else {
-          Initialized = true; // We've talked to it, so we defined it as initialized.
-          DBG_DGUSLCD_SERIAL_ECHO("#");
-          uint8_t command = dgusserial.read();
+      case DGUS_WAIT_TELEGRAM: // wait for complete datagram to arrive.
+        if (dgusserial.available() < rx_datagram_len) return;
 
-          DBG_DGUSLCD_SERIAL_ECHOPAIR(" ", command);
+        Initialized = true; // We've talked to it, so we defined it as initialized.
+        uint8_t command = dgusserial.read();
 
-          uint8_t readlen = rx_telegram_len - 1;  // command is part of len.
-          unsigned char tmp[rx_telegram_len - 1];
-          unsigned char *ptmp = tmp;
-          while (readlen--) {
-            receivedbyte = dgusserial.read();
-            DBG_DGUSLCD_SERIAL_ECHOPAIR(" ", receivedbyte);
-            *ptmp++ = receivedbyte;
-          }
-          DBG_DGUSLCD_SERIAL_ECHO(" # ");
-          // mostly we'll get this: 5A A5 03 82 4F 4B -- ACK on 0x82, so we special handle this here to fast-discard it.
-          if (command == DGUS_CMD_WRITEVAR && 'O' == tmp[0] && 'K' == tmp[1]) {
-            //DBG_DGUSLCD_SERIAL_ECHOLN("OK from display");
-            DBG_DGUSLCD_SERIAL_ECHOLN(">");
-            rx_telegram_state = DGUSDisplay::state::IDLE;
-            break;
-          }
-          // other stuff received for which we do not parse yet.
+        DGUS_ECHOPAIR("# ", command);
 
-          /* AutoUpload, (and answer to) Command 0x83 :
-           tmp[0  1  2  3  4 ... ]
-           Example 5A A5 06 83 20 01 01 78 01 ……
-           / /  |  |   \ /   |  \     \
-                   Header  |  |    |    |   \_____\_ DATA (Words!)
-           TelegramLen  /  VPAdr  |
-           Command       DataLen (in Words) */
-          if (command == DGUS_CMD_READVAR) {
-            const uint16_t vp = tmp[0] << 8 | tmp[1];
-            const uint8_t dlen = tmp[2] << 1;  // Convert to Bytes. (Display works with words)
-            //DBG_DGUSLCD_SERIAL_ECHOPAIR(" vp=", vp);	DBG_DGUSLCD_SERIAL_ECHOPAIR(" dlen=", dlen);
-            DGUS_VP_Variable ramcopy;
-            if (populate_VPVar(vp, &ramcopy)) {
-              if (!(dlen == ramcopy.size || (dlen == 2 && ramcopy.size == 1))) {
-                DBG_DGUSLCD_SERIAL_ECHOLN("SIZE MISMATCH");
-              } else if (ramcopy.set_by_display_handler) {
-                //DBG_DGUSLCD_SERIAL_ECHOLNPAIR("CALLING CB FOR ", vp);
-                ramcopy.set_by_display_handler(ramcopy, &tmp[3]);
-              } else {
-                DBG_DGUSLCD_SERIAL_ECHOLN(" VPVar found, no handler.");
-              }
-            } else {
-              DBG_DGUSLCD_SERIAL_ECHOLNPAIR(" VPVar not found:", vp);
-            }
-            rx_telegram_state = DGUSDisplay::state::IDLE;
-            break;
-          }
-
-          // discard what we do not understand.
-          rx_telegram_state = DGUSDisplay::state::IDLE;
+        uint8_t readlen = rx_datagram_len - 1;  // command is part of len.
+        unsigned char tmp[rx_datagram_len - 1];
+        unsigned char *ptmp = tmp;
+        while (readlen--) {
+          receivedbyte = dgusserial.read();
+          DGUS_ECHOPAIR(" ", receivedbyte);
+          *ptmp++ = receivedbyte;
         }
-      }
+        DGUS_ECHOPGM(" # ");
+        // mostly we'll get this: 5A A5 03 82 4F 4B -- ACK on 0x82, so discard it.
+        if (command == DGUS_CMD_WRITEVAR && 'O' == tmp[0] && 'K' == tmp[1]) {
+          DGUS_ECHOLNPGM(">");
+          rx_datagram_state = DGUS_IDLE;
+          break;
+        }
+
+        /* AutoUpload, (and answer to) Command 0x83 :
+        |      tmp[0  1  2  3  4 ... ]
+        | Example 5A A5 06 83 20 01 01 78 01 ……
+        |          / /  |  |   \ /   |  \     \
+        |        Header |  |    |    |   \_____\_ DATA (Words!)
+        | DatagramLen  /       VPAdr |
+        |       Command              DataLen (in Words) */
+        if (command == DGUS_CMD_READVAR) {
+          const uint16_t vp = tmp[0] << 8 | tmp[1];
+          const uint8_t dlen = tmp[2] << 1;  // Convert to Bytes. (Display works with words)
+          //DGUS_ECHOPAIR(" vp=", vp);	DGUS_ECHOPAIR(" dlen=", dlen);
+          DGUS_VP_Variable ramcopy;
+          if (populate_VPVar(vp, &ramcopy)) {
+            if (!(dlen == ramcopy.size || (dlen == 2 && ramcopy.size == 1)))
+              DGUS_ECHOLNPGM("SIZE MISMATCH");
+            else if (ramcopy.set_by_display_handler) {
+              //DGUS_ECHOLNPAIR("CALLING CB FOR ", vp);
+              ramcopy.set_by_display_handler(ramcopy, &tmp[3]);
+            }
+            else
+              DGUS_ECHOLNPGM(" VPVar found, no handler.");
+          }
+          else
+            DGUS_ECHOLNPAIR(" VPVar not found:", vp);
+
+          rx_datagram_state = DGUS_IDLE;
+          break;
+        }
+
+      // discard what we do not understand.
+      rx_datagram_state = DGUS_IDLE;
     }
   }
+}
 
-  size_t DGUSDisplay::GetFreeTxBuffer() const {
-    DBG_DGUSLCD_SERIAL_ECHOLN(__FUNCTION__);
-    return dgusserial.GetTxBufferFree();
-  }
+size_t DGUSDisplay::GetFreeTxBuffer() {
+  return dgusserial.GetTxBufferFree();
+}
 
+void DGUSDisplay::WriteHeader(uint16_t adr, uint8_t cmd, uint8_t payloadlen) {
+  dgusserial.write(DGUS_HEADER1);
+  dgusserial.write(DGUS_HEADER2);
+  dgusserial.write(payloadlen + 3);
+  dgusserial.write(cmd);
+  dgusserial.write(adr >> 8);
+  dgusserial.write(adr & 0xFF);
+}
 
-  void DGUSDisplay::WriteHeader(uint16_t adr, uint8_t cmd, uint8_t payloadlen) {
-    dgusserial.write(DGUS_HEADER1);
-    dgusserial.write(DGUS_HEADER2);
-    dgusserial.write(payloadlen + 3);
-    dgusserial.write(cmd);
-    dgusserial.write(adr >> 8);
-    dgusserial.write(adr & 0xFF);
-  }
+void DGUSDisplay::WritePGM(const char str[], uint8_t len) {
+  while (len--)
+    dgusserial.write(pgm_read_byte(str++));
+}
 
-  void DGUSDisplay::WritePGM(const char str[], uint8_t len) {
-    while (len--)
-      dgusserial.write(pgm_read_byte(str++));
-  }
+// Serial implementation stolen from MarlinSerial.cpp -- but functinality reduced to our use case
+// (no XON/XOFF, no Emergency Parser, no error statistics, no support to send from interrupts ...)
 
-  // Serial implementation stolen from MarlinSerial.cpp -- but functinality reduced to our use case
-  // (no XON/XOFF, no Emergency Parser, no error statistics, no support to send from interrupts ...)
+// Define all UART registers
+#define _TNAME(X,Y,Z)                X##Y##Z
+#define TNAME(X,Y,Z)                _TNAME(X,Y,Z)
+#define DGUS_SERIAL_RX_VECT          TNAME(USART,DGUS_SER_PORT,_RX_vect)
+#define DGUS_SERIAL_UDRE_VECT        TNAME(USART,DGUS_SER_PORT,_UDRE_vect)
+#define DGUS_UCSRxA                  TNAME(UCSR,DGUS_SER_PORT,A)
+#define DGUS_UCSRxB                  TNAME(UCSR,DGUS_SER_PORT,B)
+#define DGUS_UCSRxC                  TNAME(UCSR,DGUS_SER_PORT,C)
+#define DGUS_UBRRxH                  TNAME(UBRR,DGUS_SER_PORT,H)
+#define DGUS_UBRRxL                  TNAME(UBRR,DGUS_SER_PORT,L)
+#define DGUS_UDRx                    TNAME(UDR,DGUS_SER_PORT,)
 
-  // Define all UART registers
-  #define _TNAME(X,Y,Z)                X##Y##Z
-  #define TNAME(X,Y,Z)                _TNAME(X,Y,Z)
-  #define DGUS_SERIAL_RX_VECT          TNAME(USART,DGUS_SER_PORT,_RX_vect)
-  #define DGUS_SERIAL_UDRE_VECT        TNAME(USART,DGUS_SER_PORT,_UDRE_vect)
-  #define DGUS_UCSRxA                  TNAME(UCSR,DGUS_SER_PORT,A)
-  #define DGUS_UCSRxB                  TNAME(UCSR,DGUS_SER_PORT,B)
-  #define DGUS_UCSRxC                  TNAME(UCSR,DGUS_SER_PORT,C)
-  #define DGUS_UBRRxH                  TNAME(UBRR,DGUS_SER_PORT,H)
-  #define DGUS_UBRRxL                  TNAME(UBRR,DGUS_SER_PORT,L)
-  #define DGUS_UDRx                    TNAME(UDR,DGUS_SER_PORT,)
+#define U2Xx                    TNAME(U2X,DGUS_SER_PORT,)
+#define RXENx                   TNAME(RXEN,DGUS_SER_PORT,)
+#define TXENx                   TNAME(TXEN,DGUS_SER_PORT,)
+#define TXCx                    TNAME(TXC,DGUS_SER_PORT,)
+#define RXCIEx                  TNAME(RXCIE,DGUS_SER_PORT,)
+#define UDRIEx                  TNAME(UDRIE,DGUS_SER_PORT,)
+#define UDREx                   TNAME(UDRE,DGUS_SER_PORT,)
 
-  #define U2Xx                    TNAME(U2X,DGUS_SER_PORT,)
-  #define RXENx                   TNAME(RXEN,DGUS_SER_PORT,)
-  #define TXENx                   TNAME(TXEN,DGUS_SER_PORT,)
-  #define TXCx                    TNAME(TXC,DGUS_SER_PORT,)
-  #define RXCIEx                  TNAME(RXCIE,DGUS_SER_PORT,)
-  #define UDRIEx                  TNAME(UDRIE,DGUS_SER_PORT,)
-  #define UDREx                   TNAME(UDRE,DGUS_SER_PORT,)
+// A SW memory barrier, to ensure GCC does not overoptimize loops
+#define sw_barrier() asm volatile("": : :"memory");
 
-  // A SW memory barrier, to ensure GCC does not overoptimize loops
-  #define sw_barrier() asm volatile("": : :"memory");
+DGUSSerial::DGUSSerial() {
+  // Initialize UART
+  DGUS_UCSRxA = 1 << U2Xx;
+  const uint16_t baud_setting = (F_CPU / 4 / DGUS_BAUDRATE - 1) / 2;
+  DGUS_UBRRxH = baud_setting >> 8;
+  DGUS_UBRRxL = baud_setting;
+  DGUS_UCSRxC = 0x06;
+  DGUS_UCSRxB = 1 << RXCIEx | 1 << TXENx | 1 << RXENx;  // Enable TX,RX and the RX interrupts.
+}
 
-  DGUSSerial::DGUSSerial() {
-    // Initialize UART
-    DGUS_UCSRxA = 1 << U2Xx;
-    const uint16_t baud_setting = (F_CPU / 4 / DGUS_BAUDRATE - 1) / 2;
-    DGUS_UBRRxH = baud_setting >> 8;
-    DGUS_UBRRxL = baud_setting;
-    DGUS_UCSRxC = 0x06;
-    DGUS_UCSRxB = 1 << RXCIEx | 1 << TXENx | 1 << RXENx;  // Enable TX,RX and the RX interrupts.
-  }
+DGUSSerial::~DGUSSerial() {
+  DGUS_UCSRxB = 0;
+}
 
-  DGUSSerial::~DGUSSerial() {
-    DGUS_UCSRxB = 0;
-  }
-
-  // "Atomically" read the RX head index value without disabling interrupts:
-  // This MUST be called with RX interrupts enabled, and CAN'T be called
-  // from the RX ISR itself!
-  FORCE_INLINE r_ring_buffer_pos_t DGUSSerial::atomic_read_rx_head() {
-    #if RX_BUFFER_SIZE > 256
-      // Keep reading until 2 consecutive reads return the same value,
-      // meaning there was no update in-between caused by an interrupt.
-      // This works because serial RX interrupts happen at a slower rate
-      // than successive reads of a variable, so 2 consecutive reads with
-      // the same value means no interrupt updated it.
-      r_ring_buffer_pos_t vold, vnew = rx_buffer.head;
+// "Atomically" read the RX head index value without disabling interrupts:
+// This MUST be called with RX interrupts enabled, and CAN'T be called
+// from the RX ISR itself!
+FORCE_INLINE r_ring_buffer_pos_t DGUSSerial::atomic_read_rx_head() {
+  #if RX_BUFFER_SIZE > 256
+    // Keep reading until 2 consecutive reads return the same value,
+    // meaning there was no update in-between caused by an interrupt.
+    // This works because serial RX interrupts happen at a slower rate
+    // than successive reads of a variable, so 2 consecutive reads with
+    // the same value means no interrupt updated it.
+    r_ring_buffer_pos_t vold, vnew = rx_buffer.head;
+    sw_barrier();
+    do {
+      vold = vnew;
+      vnew = rx_buffer.head;
       sw_barrier();
-      do {
-        vold = vnew;
-        vnew = rx_buffer.head;
-        sw_barrier();
-      }while (vold != vnew);
-      return vnew;
-    #else
-      // With an 8bit index, reads are always atomic. No need for special handling
-      return rx_buffer.head;
-    #endif
-  }
-
-  // Set RX tail index, taking into account the RX ISR could interrupt
-  //  the write to this variable in the middle - So a backup strategy
-  //  is used to ensure reads of the correct values.
-  //    -Must NOT be called from the RX ISR -
-  FORCE_INLINE void DGUSSerial::atomic_set_rx_tail(r_ring_buffer_pos_t value) {
-    #if RX_BUFFER_SIZE > 256
-      // Store the new value in the backup
-      rx_tail_value_backup = value;
-      sw_barrier();
-      // Flag we are about to change the true value
-      rx_tail_value_not_stable = true;
-      sw_barrier();
-      // Store the new value
-      rx_buffer.tail = value;
-      sw_barrier();
-      // Signal the new value is completely stored into the value
-      rx_tail_value_not_stable = false;
-      sw_barrier();
-    #else
-      rx_buffer.tail = value;
-    #endif
-  }
-
-  // Get the RX tail index, taking into account the read could be
-  //  interrupting in the middle of the update of that index value
-  //    -Called from the RX ISR -
-  FORCE_INLINE r_ring_buffer_pos_t DGUSSerial::atomic_read_rx_tail() {
-    #if RX_BUFFER_SIZE > 256
-      // If the true index is being modified, return the backup value
-      if (rx_tail_value_not_stable) return rx_tail_value_backup;
-    #endif
-    // The true index is stable, return it
-    return rx_buffer.tail;
-  }
-
-  // (called with RX interrupts disabled)
-  FORCE_INLINE void DGUSSerial::store_rxd_char() {
-    // Get the tail - Nothing can alter its value while this ISR is executing, but there's
-    // a chance that this ISR interrupted the main process while it was updating the index.
-    // The backup mechanism ensures the correct value is always returned.
-    const r_ring_buffer_pos_t t = atomic_read_rx_tail();
-
-    // Get the head pointer - This ISR is the only one that modifies its value, so it's safe to read here
-    r_ring_buffer_pos_t h = rx_buffer.head;
-
-    // Get the next element
-    r_ring_buffer_pos_t i = (r_ring_buffer_pos_t) (h + 1) & (r_ring_buffer_pos_t) (DGUS_RX_BUFFER_SIZE - 1);
-
-    // Read the character from the USART
-    uint8_t c = DGUS_UDRx;
-
-    // If the character is to be stored at the index just before the tail
-    // (such that the head would advance to the current tail), the RX FIFO is
-    // full, so don't write the character or advance the head.
-    if (i != t) {
-      rx_buffer.buffer[h] = c;
-      h = i;
-    } else {
-      dgus_rx_overrun = true;
-    }
-
-    // Store the new head value - The main loop will retry until the value is stable
-    rx_buffer.head = h;
-  }
-
-  // (called with TX irqs disabled)
-  FORCE_INLINE void DGUSSerial::tx_udr_empty_irq(void) {
-    // Read positions
-    uint8_t t = tx_buffer.tail;
-    const uint8_t h = tx_buffer.head;
-    // If nothing to transmit, just disable TX interrupts. This could
-    // happen as the result of the non atomicity of the disabling of RX
-    // interrupts that could end reenabling TX interrupts as a side effect.
-    if (h == t) {
-      CBI(DGUS_UCSRxB, UDRIEx); // (Non-atomic, could be reenabled by the main program, but eventually this will succeed)
-      return;
-    }
-
-    // There is something to TX, Send the next byte
-    const uint8_t c = tx_buffer.buffer[t];
-    t = (t + 1) & (DGUS_TX_BUFFER_SIZE - 1);
-    DGUS_UDRx = c;
-    tx_buffer.tail = t;
-
-    // Clear the TXC bit (by writing a one to its bit location).
-    // Ensures flush() won't return until the bytes are actually written/
-    SBI(DGUS_UCSRxA, TXCx);
-
-    // Disable interrupts if there is nothing to transmit following this byte
-    if (h == t) CBI(DGUS_UCSRxB, UDRIEx);
-  }
-
-  r_ring_buffer_pos_t DGUSSerial::available(void) {
-    const r_ring_buffer_pos_t h = atomic_read_rx_head(), t = rx_buffer.tail;
-    return (r_ring_buffer_pos_t) (DGUS_RX_BUFFER_SIZE + h - t) & (DGUS_RX_BUFFER_SIZE - 1);
-  }
-
-  int DGUSSerial::read() {
-    const r_ring_buffer_pos_t h = atomic_read_rx_head();
-
-    // Read the tail. Main thread owns it, so it is safe to directly read it
-    r_ring_buffer_pos_t t = rx_buffer.tail;
-
-    // If nothing to read, return now
-    if (h == t) return -1;
-
-    // Get the next char
-    const int v = rx_buffer.buffer[t];
-    t = (r_ring_buffer_pos_t) (t + 1) & (DGUS_RX_BUFFER_SIZE - 1);
-
-    // Advance tail - Making sure the RX ISR will always get an stable value, even
-    // if it interrupts the writing of the value of that variable in the middle.
-    atomic_set_rx_tail(t);
-    return v;
-  }
-
-  void DGUSSerial::write(const uint8_t c) {
-    // are we currently tranmitting? If not, we can just place the byte in UDR.
-    if (!TEST(DGUS_UCSRxB, UDRIEx) && TEST(DGUS_UCSRxA, UDREx)) {
-      DGUS_UDRx = c;
-      SBI(DGUS_UCSRxA, TXCx);
-      return;
-    }
-
-    const uint8_t i = (tx_buffer.head + 1) & (DGUS_TX_BUFFER_SIZE - 1);
-    while (i == tx_buffer.tail) {
-      sw_barrier();
-    }
-    // Store new char. head is always safe to move
-    tx_buffer.buffer[tx_buffer.head] = c;
-    tx_buffer.head = i;
-    SBI(DGUS_UCSRxB, UDRIEx);  // Enable Interrupts to finish off.
-  }
-
-  t_ring_buffer_pos_t DGUSSerial::GetTxBufferFree() {
-    const t_ring_buffer_pos_t t = tx_buffer.tail;  // next byte to send.
-    const t_ring_buffer_pos_t h = tx_buffer.head;  // next pos for queue.
-    int ret = t - h - 1;
-    if (ret < 0) ret += DGUS_TX_BUFFER_SIZE + 1;
-    return ret;
-  }
-
-  ISR(DGUS_SERIAL_UDRE_VECT) {
-    dgusserial.tx_udr_empty_irq();
-  }
-
-  ISR(DGUS_SERIAL_RX_VECT) {
-    dgusserial.store_rxd_char();
-  }
-
+    }while (vold != vnew);
+    return vnew;
+  #else
+    // With an 8bit index, reads are always atomic. No need for special handling
+    return rx_buffer.head;
   #endif
+}
+
+// Set RX tail index, taking into account the RX ISR could interrupt
+//  the write to this variable in the middle - So a backup strategy
+//  is used to ensure reads of the correct values.
+//    -Must NOT be called from the RX ISR -
+FORCE_INLINE void DGUSSerial::atomic_set_rx_tail(r_ring_buffer_pos_t value) {
+  #if RX_BUFFER_SIZE > 256
+    // Store the new value in the backup
+    rx_tail_value_backup = value;
+    sw_barrier();
+    // Flag we are about to change the true value
+    rx_tail_value_not_stable = true;
+    sw_barrier();
+    // Store the new value
+    rx_buffer.tail = value;
+    sw_barrier();
+    // Signal the new value is completely stored into the value
+    rx_tail_value_not_stable = false;
+    sw_barrier();
+  #else
+    rx_buffer.tail = value;
+  #endif
+}
+
+// Get the RX tail index, taking into account the read could be
+//  interrupting in the middle of the update of that index value
+//    -Called from the RX ISR -
+FORCE_INLINE r_ring_buffer_pos_t DGUSSerial::atomic_read_rx_tail() {
+  #if RX_BUFFER_SIZE > 256
+    // If the true index is being modified, return the backup value
+    if (rx_tail_value_not_stable) return rx_tail_value_backup;
+  #endif
+  // The true index is stable, return it
+  return rx_buffer.tail;
+}
+
+// (called with RX interrupts disabled)
+FORCE_INLINE void DGUSSerial::store_rxd_char() {
+  // Get the tail - Nothing can alter its value while this ISR is executing, but there's
+  // a chance that this ISR interrupted the main process while it was updating the index.
+  // The backup mechanism ensures the correct value is always returned.
+  const r_ring_buffer_pos_t t = atomic_read_rx_tail();
+
+  // Get the head pointer - This ISR is the only one that modifies its value, so it's safe to read here
+  r_ring_buffer_pos_t h = rx_buffer.head;
+
+  // Get the next element
+  r_ring_buffer_pos_t i = (r_ring_buffer_pos_t) (h + 1) & (r_ring_buffer_pos_t) (DGUS_RX_BUFFER_SIZE - 1);
+
+  // Read the character from the USART
+  uint8_t c = DGUS_UDRx;
+
+  // If the character is to be stored at the index just before the tail
+  // (such that the head would advance to the current tail), the RX FIFO is
+  // full, so don't write the character or advance the head.
+  if (i != t) {
+    rx_buffer.buffer[h] = c;
+    h = i;
+  }
+  else {
+    dgus_rx_overrun = true;
+  }
+
+  // Store the new head value - The main loop will retry until the value is stable
+  rx_buffer.head = h;
+}
+
+// (called with TX irqs disabled)
+FORCE_INLINE void DGUSSerial::tx_udr_empty_irq(void) {
+  // Read positions
+  uint8_t t = tx_buffer.tail;
+  const uint8_t h = tx_buffer.head;
+  // If nothing to transmit, just disable TX interrupts. This could
+  // happen as the result of the non atomicity of the disabling of RX
+  // interrupts that could end reenabling TX interrupts as a side effect.
+  if (h == t) {
+    CBI(DGUS_UCSRxB, UDRIEx); // (Non-atomic, could be reenabled by the main program, but eventually this will succeed)
+    return;
+  }
+
+  // There is something to TX, Send the next byte
+  const uint8_t c = tx_buffer.buffer[t];
+  t = (t + 1) & (DGUS_TX_BUFFER_SIZE - 1);
+  DGUS_UDRx = c;
+  tx_buffer.tail = t;
+
+  // Clear the TXC bit (by writing a one to its bit location).
+  // Ensures flush() won't return until the bytes are actually written/
+  SBI(DGUS_UCSRxA, TXCx);
+
+  // Disable interrupts if there is nothing to transmit following this byte
+  if (h == t) CBI(DGUS_UCSRxB, UDRIEx);
+}
+
+r_ring_buffer_pos_t DGUSSerial::available(void) {
+  const r_ring_buffer_pos_t h = atomic_read_rx_head(), t = rx_buffer.tail;
+  return (r_ring_buffer_pos_t) (DGUS_RX_BUFFER_SIZE + h - t) & (DGUS_RX_BUFFER_SIZE - 1);
+}
+
+int DGUSSerial::read() {
+  const r_ring_buffer_pos_t h = atomic_read_rx_head();
+
+  // Read the tail. Main thread owns it, so it is safe to directly read it
+  r_ring_buffer_pos_t t = rx_buffer.tail;
+
+  // If nothing to read, return now
+  if (h == t) return -1;
+
+  // Get the next char
+  const int v = rx_buffer.buffer[t];
+  t = (r_ring_buffer_pos_t) (t + 1) & (DGUS_RX_BUFFER_SIZE - 1);
+
+  // Advance tail - Making sure the RX ISR will always get an stable value, even
+  // if it interrupts the writing of the value of that variable in the middle.
+  atomic_set_rx_tail(t);
+  return v;
+}
+
+void DGUSSerial::write(const uint8_t c) {
+  // are we currently tranmitting? If not, we can just place the byte in UDR.
+  if (!TEST(DGUS_UCSRxB, UDRIEx) && TEST(DGUS_UCSRxA, UDREx)) {
+    DGUS_UDRx = c;
+    SBI(DGUS_UCSRxA, TXCx);
+    return;
+  }
+
+  const uint8_t i = (tx_buffer.head + 1) & (DGUS_TX_BUFFER_SIZE - 1);
+  while (i == tx_buffer.tail) sw_barrier();
+
+  // Store new char. head is always safe to move
+  tx_buffer.buffer[tx_buffer.head] = c;
+  tx_buffer.head = i;
+  SBI(DGUS_UCSRxB, UDRIEx);  // Enable Interrupts to finish off.
+}
+
+t_ring_buffer_pos_t DGUSSerial::GetTxBufferFree() {
+  const t_ring_buffer_pos_t t = tx_buffer.tail;  // next byte to send.
+  const t_ring_buffer_pos_t h = tx_buffer.head;  // next pos for queue.
+  int ret = t - h - 1;
+  if (ret < 0) ret += DGUS_TX_BUFFER_SIZE + 1;
+  return ret;
+}
+
+ISR(DGUS_SERIAL_UDRE_VECT)  { dgusserial.tx_udr_empty_irq(); }
+ISR(DGUS_SERIAL_RX_VECT)    { dgusserial.store_rxd_char(); }
+
+#endif // DGUS_LCD

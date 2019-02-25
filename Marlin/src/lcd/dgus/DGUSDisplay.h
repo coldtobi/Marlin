@@ -19,215 +19,174 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
-
 #pragma once
-
-#include "../../inc/MarlinConfigPre.h"
-
-#if ENABLED(DGUS_LCD)
 
 /* DGUS implementation written by coldtobi in 2019 for Marlin */
 
-  #include "../../Marlin.h"
-  #include "DGUSVPVariable.h"
+#include "../../inc/MarlinConfigPre.h"
+#include "../../Marlin.h"
+#include "DGUSVPVariable.h"
 
-  enum DGUSLCD_Screens : uint8_t ;
+enum DGUSLCD_Screens : uint8_t;
 
-  #if ENABLED(DEBUG_DGUSLCD)
-    // default debug behaviour. true is reallly noisy.
-    // (otherwise, use DGUSLCD_ScopeDebug)
-    constexpr bool DEBUG_DGUSLCD_DEFAULTON = true;
+#if ENABLED(DEBUG_DGUSLCD)
+  extern bool dguslcd_local_debug;
+  #define DGUS_DEBUG(V) REMEMBER(dgus,dguslcd_local_debug,V)
+#else
+  constexpr bool dguslcd_local_debug = false;
+  #define DGUS_DEBUG(V)
+#endif
 
-    extern bool dguslcd_local_debug;
+#define DGUS_CHAR(x)                 do{if (dguslcd_local_debug) SERIAL_CHAR(x);}while(0)
+#define DGUS_ECHO(x)                 do{if (dguslcd_local_debug) SERIAL_ECHO(x);}while(0)
+#define DGUS_ECHOPGM(x)              do{if (dguslcd_local_debug) SERIAL_ECHOPGM(x);}while(0)
+#define DGUS_ECHOLN(x)               do{if (dguslcd_local_debug) SERIAL_ECHOLN(x);}while(0)
+#define DGUS_ECHOLNPGM(x)            do{if (dguslcd_local_debug) SERIAL_ECHOLNPGM(x);}while(0)
+#define DGUS_ECHOPAIR(pre,value)     do{if (dguslcd_local_debug) SERIAL_ECHOPAIR(pre, value);}while(0)
+#define DGUS_ECHOLNPAIR(pre,value)   do{if (dguslcd_local_debug) SERIAL_ECHOLNPAIR(pre, value);}while(0)
+#define DGUS_ECHO_F(x,y)             do{if (dguslcd_local_debug) SERIAL_ECHO_F(x,y);}while(0)
 
-    // Instanciate one of those to locally tweak debugging. The level will be valid in the current scope.
-    // on destruction, previous behaviour will be set again.
-    class DGUSLCD_ScopeDebug {
-    public:
-        DGUSLCD_ScopeDebug(bool enable=true) : before(dguslcd_local_debug) {
-            dguslcd_local_debug = enable;
-        }
+typedef enum : uint8_t {
+  DGUS_IDLE,           //< waiting for DGUS_HEADER1.
+  DGUS_HEADER1_SEEN,   //< DGUS_HEADER1 received
+  DGUS_HEADER2_SEEN,   //< DGUS_HEADER2 received
+  DGUS_WAIT_TELEGRAM,  //< LEN received, Waiting for to receive all bytes.
+} rx_datagram_state_t;
 
-        ~DGUSLCD_ScopeDebug() {
-            dguslcd_local_debug = before;
-        }
+// Low-Level access to the display.
+class DGUSDisplay {
+public:
 
-    private:
-        bool before;
-    };
+  DGUSDisplay() = default;
 
-    #define DBG_DGUSLCD_ENABLE_DBG()           do { local_debug=true;} while(0)
-    #define DBG_DGUSLCD_DGUS_DISBLE_DBG()      do { local_debug=false;} while(0)
+  static void InitDisplay();
 
-    //#define DBG_DGUSLCD_SERIAL_ECHO_START()            if (dguslcd_local_debug) serialprintPGM(echomagic)
-    #define DBG_DGUSLCD_SERIAL_ECHO(x)                 if (dguslcd_local_debug) SERIAL_ECHO(x)
-    #define DBG_DGUSLCD_SERIAL_ECHOPGM(x)              if (dguslcd_local_debug) SERIAL_ECHOPGM(x)
-    #define DBG_DGUSLCD_SERIAL_ECHOLN(x)               if (dguslcd_local_debug) SERIAL_ECHOLN(x)
-    #define DBG_DGUSLCD_SERIAL_ECHOLNPGM(x)            if (dguslcd_local_debug) SERIAL_ECHOLNPGM(x)
-    #define DBG_DGUSLCD_SERIAL_ECHOPAIR(pre,value)     if (dguslcd_local_debug) SERIAL_ECHOPAIR(pre, value)
-    #define DBG_DGUSLCD_SERIAL_ECHOLNPAIR(pre,value)   if (dguslcd_local_debug) SERIAL_ECHOLNPAIR(pre, value)
-    #define DBG_DGUSLCD_SERIAL_ECHO_F(x,y)             if (dguslcd_local_debug) SERIAL_ECHO_F(x,y)
-  #else
-    class DGUSLCD_ScopeDebug {public: DGUSLCD_ScopeDebug(bool ) {} DGUSLCD_ScopeDebug() {} }; // will be optimized out.
-    #define DBG_DGUSLCD_ENABLE_DBG()
-    #define DBG_DGUSLCD_DGUS_DISBLE_DBG()
-    //#define DBG_DGUSLCD_SERIAL_ECHO_START()
-    #define DBG_DGUSLCD_SERIAL_ECHO(x)
-    #define DBG_DGUSLCD_SERIAL_ECHOPGM(x)
-    #define DBG_DGUSLCD_SERIAL_ECHOLN(x)
-    #define DBG_DGUSLCD_SERIAL_ECHOLNPGM(x)
-    #define DBG_DGUSLCD_SERIAL_ECHOPAIR(pre,value)
-    #define DBG_DGUSLCD_SERIAL_ECHOLNPAIR(pre,value)
-    #define DBG_DGUSLCD_SERIAL_ECHO_F(x,y)
-  #endif
+  // Variable access.
+  static void WriteVariable(uint16_t adr, const void* values, uint8_t valueslen, bool isstr=false);
+  static void WriteVariablePGM(uint16_t adr, const void* values, uint8_t valueslen, bool isstr=false);
+  template<typename T>
+  static void WriteVariable(uint16_t adr, T value) {
+    WriteVariable(adr, static_cast<const void*>(&value), sizeof(T));
+  }
 
-  // Low-Level access to the display.
-  class DGUSDisplay {
-  public:
+  // Until now I did not have the need to actively read from the display. That's why there is no ReadVariable
+  // (I extensively use the auto upload of the display)
 
-    DGUSDisplay() = default;
+  // Force display into another screen.
+  // (And trigger update of containing VPs)
+  // (to implement an pop up message, which may not be nested)
+  static void RequestScreen(DGUSLCD_Screens screen);
 
-    void InitDisplay();
-
-    // Variable access.
-    void WriteVariable(uint16_t adr, const void* values, uint8_t valueslen, bool isstr = false);
-    void WriteVariablePGM(uint16_t adr, const void* values, uint8_t valueslen, bool isstr = false);
-    template<typename T>
-    void WriteVariable(uint16_t adr, T value) {
-      WriteVariable(adr, static_cast<const void*>(&value), sizeof(T));
-    }
-
-    // until now I did not have the need to actively read from the display thats why there is no ReadVariable
-    // (I extensively use the auto upload of the display)
-
-    /// Force display into another screen.
-    /// (And trigger update of containing VPs)
-    // (to implement an pop up message, which may not be nested)
-  void RequestScreen(DGUSLCD_Screens screen);
-
-  /// periodic tasks, eg. Rx-Queue handling.
-  void loop();
+  // Periodic tasks, eg. Rx-Queue handling.
+  static void loop();
 
 public:
-    // Helper for users of this class to estimate if an interaction would be blocking.
-    size_t GetFreeTxBuffer() const;
+  // Helper for users of this class to estimate if an interaction would be blocking.
+  static size_t GetFreeTxBuffer();
 
-    // Checks two things: Can we confirm the presence of the display and has we initiliazed it.
-    // (both boils down that the display answered to our chatting)
-    inline bool isInitialized() const { return Initialized;}
+  // Checks two things: Can we confirm the presence of the display and has we initiliazed it.
+  // (both boils down that the display answered to our chatting)
+  static inline bool isInitialized() { return Initialized; }
 
-  private:
-    void WriteHeader(uint16_t adr, uint8_t cmd, uint8_t payloadlen);
-    void WritePGM(const char str[], uint8_t len);
+private:
+  static void WriteHeader(uint16_t adr, uint8_t cmd, uint8_t payloadlen);
+  static void WritePGM(const char str[], uint8_t len);
+  static void ProcessRx();
 
-    void ProcessRx();
+  static rx_datagram_state_t rx_datagram_state;
+  static uint8_t rx_datagram_len;
+  static bool Initialized, no_reentrance;
+};
 
-  private:
-    enum state {
-      IDLE,  ///< waiting for DGUS_HEADER1.
-      HEADER1_SEEN, ///< DGUS_HEADER1 received
-      HEADER2_SEEN, ///< DGUS_HEADER2 received
-      WAIT_TELEGRAM, ///< LEN received, Waiting for to receive all bytes.
-    } rx_telegram_state = IDLE;
+extern DGUSDisplay dgusdisplay;
 
-    uint8_t rx_telegram_len = 0;
-    bool Initialized = false;
-    bool no_reentrance = false;
-  };
+// compile-time x^y
+constexpr float cpow(const float x, const int y) { return y == 0 ? 1.0 : x * cpow(x, y-1); }
 
-  extern DGUSDisplay dgusdisplay;
+class DGUSScreenVariableHandler {
+public:
+  // Gets callback from RX when screen has changed
+  // Schedules updates for Variables
+  DGUSScreenVariableHandler() = default;
 
-  // compile-time x^y
-  constexpr float cpow(const float x, const int y) { return y == 0 ? 1.0 : x * cpow(x, y-1); }
+  static bool loop();
 
-  class DGUSScreenVariableHandler {
-  public:
-    // Gets callback from RX when screen has changed
-    // Schedules updates for Variables
-    DGUSScreenVariableHandler() = default;
+  // Callback for VP "Screen has been changed"
+  static void ScreenChangeHook(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
+  // Callback for VP "All Heaters Off"
+  static void HandleAllHeatersOff(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
+  // Hook for "Change this temperature"
+  static void HandleTemperatureChanged(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
+  // Hook for manual move.
+  static void HandleManualMove(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
 
-    bool loop();
+  // Update data after went to new screen (by display or by GotoScreen)
+  // remember: store the last displayed screen, so that one can get back
+  // to it. (e.g for pop up messages)
+  static void UpdateNewScreen(DGUSLCD_Screens newscreen, bool popup=false);
 
-    /// Callback for VP "Screen has been changed"
-    static void ScreenChangeHook(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
-    /// Callback for VP "All Heaters Off"
-    static void HandleAllHeatersOff(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
-    /// Hook for "Change this temperature"
-    static void HandleTemperatureChanged(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
-    // Hook for manual move.
-    static void HandleManualMove(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
+  // Recall the remembered screen.
+  static void PopToOldScreen();
 
-    /// Update data after went to new screen (by display or by GotoScreen)
-    /// remember: store the last displayed screen, so that one can get back
-    /// to it. (e.g for pop up messages)
-    void UpdateNewScreen(DGUSLCD_Screens newscreen, bool popup=false);
+  // Make the display display the screen and update all VPs in it.
+  static void GotoScreen(DGUSLCD_Screens screen);
 
-    /// Recall the remembered screen.
-    void PopToOldScreen();
+  static void UpdateScreenVPData();
 
-    /// Make the display display the screen and update all VPs in it.
-    void GotoScreen(DGUSLCD_Screens screen);
+  // Helpers to convert and transfer data to the display.
+  static void DGUSLCD_SendWordValueToDisplay(DGUS_VP_Variable &ref_to_this);
+  static void DGUSLCD_SendStringToDisplay(DGUS_VP_Variable &ref_to_this);
+  static void DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable &ref_to_this);
+  static void DGUSLCD_SendPercentageToDisplay(DGUS_VP_Variable &ref_to_this);
 
+  // Send a float value to the display.
+  // Display will get a 4-byte integer scaled to the number of digits:
+  // Tell the display the number of digits and it cheats by displaying a dot between...
+  template<unsigned int decimals>
+  static void DGUSLCD_SendFloatAsLongValueToDisplay(DGUS_VP_Variable &ref_to_this) {
+    if (ref_to_this.memadr) {
+      DGUS_ECHOPAIR(" DGUS_LCD_SendWordValueToDisplay ", ref_to_this.VP);
+      //SERIAL_ECHO(" ");
+      //SERIAL_ECHO_F(*(float*)ref_to_this.memadr, 2);
+      float f = *(float *)ref_to_this.memadr;
+      f *= cpow(10,decimals);
+      union {
+        long l;
+        char lb[4];
+      } endian;
 
-    void UpdateScreenVPData();
-
-    // Helpers to convert and transfer data to the display.
-    static void DGUSLCD_SendWordValueToDisplay(DGUS_VP_Variable &ref_to_this);
-    static void DGUSLCD_SendStringToDisplay(DGUS_VP_Variable &ref_to_this);
-    static void DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable &ref_to_this);
-    static void DGUSLCD_SendPercentageToDisplay(DGUS_VP_Variable &ref_to_this);
-
-    // Send a float value to the display.
-    // Display will get an 4-byte integer scalled to the number of digits:
-    // You tell the display the number of digits and it cheats by displaying a dot
-    // between...
-    template<unsigned int decimals>
-    static void DGUSLCD_SendFloatAsLongValueToDisplay(DGUS_VP_Variable &ref_to_this) {
-      if(ref_to_this.memadr) {
-        DBG_DGUSLCD_SERIAL_ECHOPAIR(" DGUS_LCD_SendWordValueToDisplay ", ref_to_this.VP);
-        //SERIAL_ECHO(" ");
-        //SERIAL_ECHO_F(*(float*)ref_to_this.memadr, 2);
-        float f= *(float *)ref_to_this.memadr;
-        f *= cpow(10,decimals);
-        union {
-          long l;
-          char lb[4];
-        } endian;
-
-        char tmp[4];
-        endian.l = f;
-        tmp[0] = endian.lb[3];
-        tmp[1] = endian.lb[2];
-        tmp[2] = endian.lb[1];
-        tmp[3] = endian.lb[0];
-        dgusdisplay.WriteVariable(ref_to_this.VP, tmp, 4);
-      }
+      char tmp[4];
+      endian.l = f;
+      tmp[0] = endian.lb[3];
+      tmp[1] = endian.lb[2];
+      tmp[2] = endian.lb[1];
+      tmp[3] = endian.lb[0];
+      dgusdisplay.WriteVariable(ref_to_this.VP, tmp, 4);
     }
+  }
 
-    /// force an update of all VP on the current screen.
-    inline void ForceCompleteUpdate() { update_ptr = 0; ScreenComplete = false; }
+  // Force an update of all VP on the current screen.
+  static inline void ForceCompleteUpdate() { update_ptr = 0; ScreenComplete = false; }
 
-    /// has all VPs sent to the screen
-    inline bool IsScreenComplete() { return ScreenComplete; }
-  private:
-    void privateScreenChangeHook(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
+  // Has all VPs sent to the screen
+  static inline bool IsScreenComplete() { return ScreenComplete; }
 
-    DGUSLCD_Screens current_screen; ///< currently on screen
-    static constexpr uint8_t NUM_PAST_SCREENS = 4;
-    DGUSLCD_Screens past_screens[NUM_PAST_SCREENS]; ///< LIFO with past screens for the "back" button.
+private:
 
-    uint8_t update_ptr = 0; ///< last sent entry in the VPList for the actual screen.
-    uint16_t skipVP = 0; ///< when updating the screen data, skip this one, because the user is interacting with it.
+  static DGUSLCD_Screens current_screen;  //< currently on screen
+  static constexpr uint8_t NUM_PAST_SCREENS = 4;
+  static DGUSLCD_Screens past_screens[NUM_PAST_SCREENS]; //< LIFO with past screens for the "back" button.
 
-    bool ScreenComplete = false; ///< All VPs sent to screen?
-  };
+  static uint8_t update_ptr;    //< Last sent entry in the VPList for the actual screen.
+  static uint16_t skipVP;       //< When updating the screen data, skip this one, because the user is interacting with it.
 
-  extern DGUSScreenVariableHandler ScreenHandler;
+  static bool ScreenComplete;   //< All VPs sent to screen?
+};
 
-  /// Find the flash address of a DGUS_VP_Variable for the VP.
-  extern const DGUS_VP_Variable* DGUSLCD_FindVPVar(uint16_t vp);
+extern DGUSScreenVariableHandler ScreenHandler;
 
-  /// Helper to populae a DGUS_VP_Variable for a given VP. returns false if not found.
-  extern bool populate_VPVar(uint16_t VP,  DGUS_VP_Variable *ramcopy);
+/// Find the flash address of a DGUS_VP_Variable for the VP.
+extern const DGUS_VP_Variable* DGUSLCD_FindVPVar(uint16_t vp);
 
-#endif
+/// Helper to populae a DGUS_VP_Variable for a given VP. returns false if not found.
+extern bool populate_VPVar(uint16_t VP,  DGUS_VP_Variable *ramcopy);

@@ -22,21 +22,18 @@
 
 #include "../../inc/MarlinConfigPre.h"
 
-
 #if ENABLED(DGUS_LCD)
 
-  #include "DGUSDisplay.h"
-  #include "DGUSDisplayDefinition.h"
-  #include "DGUSVPVariable.h"
+#include "DGUSDisplay.h"
+#include "DGUSDisplayDefinition.h"
+#include "DGUSVPVariable.h"
 
+#include "../ultralcd.h"
+MarlinUI_DGUS ui;
 
-  #include "../ultralcd.h"
-  MarlinUI_DGUS ui;
+#include "../../sd/cardreader.h"
 
-  #include "../../sd/cardreader.h"
-
-
-#if HAS_SPI_LCD // likely we want some of those functionsa also dgus displays, but later: TODO
+#if HAS_SPI_LCD   // likely also want some of those functions for DGUS displays, but TODO
 
 #include "../lcdprint.h"
 
@@ -50,11 +47,11 @@
 #include "../../Marlin.h"
 
 #if ENABLED(POWER_LOSS_RECOVERY)
- #include "../feature/power_loss_recovery.h"
+  #include "../feature/power_loss_recovery.h"
 #endif
 
 #if ENABLED(AUTO_BED_LEVELING_UBL)
- #include "../feature/bedlevel/bedlevel.h"
+  #include "../feature/bedlevel/bedlevel.h"
 #endif
 
 #if HAS_BUZZER
@@ -65,7 +62,7 @@
   #include "../../feature/tmc_util.h"
 #endif
 
-  uint8_t MarlinUI_DGUS::progress_bar_percent = 0;
+uint8_t MarlinUI_DGUS::progress_bar_percent = 0;
 
 #if ENABLED(SDSUPPORT) && PIN_EXISTS(SD_DETECT)
   uint8_t lcd_sd_status;
@@ -91,7 +88,7 @@
     const char * MarlinUI::scrolled_filename(CardReader &theCard, const uint8_t maxlen, uint8_t hash, const bool doScroll) {
       const char *outstr = theCard.longest_filename();
       if (theCard.longFilename[0]) {
-          theCard.longFilename[maxlen] = '\0'; // cutoff at screen edge
+        theCard.longFilename[maxlen] = '\0'; // cutoff at screen edge
       }
       return outstr;
     }
@@ -142,7 +139,6 @@ void MarlinUI_DGUS::kill_screen(PGM_P lcd_msg) {
 }
 
 void MarlinUI::quick_feedback(const bool clear_buttons/*=true*/) {
-
   UNUSED(clear_buttons);
   buzz(LCD_FEEDBACK_FREQUENCY_DURATION_MS, LCD_FEEDBACK_FREQUENCY_HZ);
 }
@@ -477,7 +473,6 @@ void MarlinUI_DGUS::update() {
     set_status_P(msg, -1);
   }
 
-
-#endif // HAS_SPI_LCD || EXTENSIBLE_UI
+#endif // HAS_SPI_LCD
 
 #endif // DGUS_LCD
