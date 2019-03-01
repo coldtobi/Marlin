@@ -295,6 +295,11 @@ public:
       static constexpr uint8_t get_progress() { return 0; }
     #endif
 
+  #if ENABLED(DGUS_LCD)
+    static void show_bootscreen() { };
+  #endif
+
+
     #if HAS_SPI_LCD
 
       static bool detected();

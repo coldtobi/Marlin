@@ -21,7 +21,7 @@
 
 #include "../../../inc/MarlinConfigPre.h"
 
-#if ENABLED(EXTENSIBLE_UI)
+#if ENABLED(EXTENSIBLE_UI) && DISABLED(DGUS_LCD)
 
 #include "../ui_api.h"
 
@@ -62,4 +62,4 @@ namespace ExtUI {
   void onStoreSettings() {}
 }
 
-#endif // EXTENSIBLE_UI
+#endif // ENABLED(EXTENSIBLE_UI) && DISABLED(DGUS_LCD)
