@@ -158,7 +158,7 @@ void DGUSScreenVariableHandler::DGUSLCD_SendPercentageToDisplay(DGUS_VP_Variable
   if (ref_to_this.memadr) {
     //DGUS_ECHOPAIR(" DGUS_LCD_SendWordValueToDisplay ", ref_to_this.VP);
     //DGUS_ECHOLNPAIR(" data ", *(uint16_t *)ref_to_this.memadr);
-    uint16_t tmp = *(uint8_t *) ref_to_this.memadr;
+    uint16_t tmp = *(uint8_t *) ref_to_this.memadr +1 ; // +1 -> avoid rounding issues for the display.
     tmp = map(tmp, 0, 255, 0, 100);
     uint16_t data_to_send = swap16(tmp);
     dgusdisplay.WriteVariable(ref_to_this.VP, data_to_send);
