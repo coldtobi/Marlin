@@ -106,8 +106,6 @@ constexpr float cpow(const float x, const int y) { return y == 0 ? 1.0 : x * cpo
 
 class DGUSScreenVariableHandler {
 public:
-  // Gets callback from RX when screen has changed
-  // Schedules updates for Variables
   DGUSScreenVariableHandler() = default;
 
   static bool loop();
@@ -143,14 +141,11 @@ public:
   static void DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable &ref_to_this);
   static void DGUSLCD_SendPercentageToDisplay(DGUS_VP_Variable &ref_to_this);
 
-  // Send a value from 0..100 to a variable with a range from 0..255
+  /// Send a value from 0..100 to a variable with a range from 0..255
   static void DGUSLCD_PercentageToUint8(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
 
   template<typename T>
   static void DGUSLCD_SetValueDirectly(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-    DGUS_ECHOLN(__FUNCTION__);
-    DGUS_ECHOPAIR("value", *(T*)ptr_to_new_value);
-
     if (!ref_to_this.memadr) return;
 
     union {
@@ -164,15 +159,12 @@ public:
     *(T*)ref_to_this.memadr = x.t;
   }
 
-  // Send a float value to the display.
-  // Display will get a 4-byte integer scaled to the number of digits:
-  // Tell the display the number of digits and it cheats by displaying a dot between...
+  /// Send a float value to the display.
+  /// Display will get a 4-byte integer scaled to the number of digits:
+  /// Tell the display the number of digits and it cheats by displaying a dot between...
   template<unsigned int decimals>
   static void DGUSLCD_SendFloatAsLongValueToDisplay(DGUS_VP_Variable &ref_to_this) {
     if (ref_to_this.memadr) {
-      DGUS_ECHOPAIR(" DGUS_LCD_SendWordValueToDisplay ", ref_to_this.VP);
-      //SERIAL_ECHO(" ");
-      //SERIAL_ECHO_F(*(float*)ref_to_this.memadr, 2);
       float f = *(float *)ref_to_this.memadr;
       f *= cpow(10,decimals);
       union {
@@ -190,24 +182,25 @@ public:
     }
   }
 
-
-
-  // Force an update of all VP on the current screen.
+  /// Force an update of all VP on the current screen.
   static inline void ForceCompleteUpdate() { update_ptr = 0; ScreenComplete = false; }
-
-  // Has all VPs sent to the screen
+  /// Has all VPs sent to the screen
   static inline bool IsScreenComplete() { return ScreenComplete; }
 
 private:
 
-  static DGUSLCD_Screens current_screen;  //< currently on screen
+private:
+  static DGUSLCD_Screens current_screen;  ///< currently on screen
   static constexpr uint8_t NUM_PAST_SCREENS = 4;
-  static DGUSLCD_Screens past_screens[NUM_PAST_SCREENS]; //< LIFO with past screens for the "back" button.
+  static DGUSLCD_Screens past_screens[NUM_PAST_SCREENS]; ///< LIFO with past screens for the "back" button.
 
-  static uint8_t update_ptr;    //< Last sent entry in the VPList for the actual screen.
-  static uint16_t skipVP;       //< When updating the screen data, skip this one, because the user is interacting with it.
+  static uint8_t update_ptr;    ///< Last sent entry in the VPList for the actual screen.
+  static uint16_t skipVP;       ///< When updating the screen data, skip this one, because the user is interacting with it.
+  static bool ScreenComplete;   ///< All VPs sent to screen?
 
-  static bool ScreenComplete;   //< All VPs sent to screen?
+  static uint16_t ConfirmVP;    ///< context for confirm screen (VP that will be emulated-sent on "OK").
+
+
 };
 
 extern DGUSScreenVariableHandler ScreenHandler;

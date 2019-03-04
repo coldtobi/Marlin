@@ -58,7 +58,7 @@ const uint16_t VPList_Temp[] PROGMEM = {
 };
 
 const uint16_t VPList_Status[] PROGMEM = {
-  /* VP_M117, for completeness, but it cannot be auto-uploaded because.*/
+  /* VP_M117, for completeness, but it cannot be auto-uploaded */
   #if HOTENDS >= 1
     VP_T_E1_Is, VP_T_E1_Set,
   #endif

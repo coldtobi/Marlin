@@ -263,8 +263,6 @@ void DGUSScreenVariableHandler::HandleAllHeatersOff(DGUS_VP_Variable &ref_to_thi
 void DGUSScreenVariableHandler::HandleTemperatureChanged(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
   uint16_t newvalue = swap16(*(uint16_t*) ptr_to_new_value);
   uint16_t acceptedvalue;
-  DGUS_ECHOLNPAIR("value=", newvalue);
-  DGUS_ECHOLNPAIR("VP=", ref_to_this.VP);
 
   switch (ref_to_this.VP) {
 #if HOTENDS >= 1
