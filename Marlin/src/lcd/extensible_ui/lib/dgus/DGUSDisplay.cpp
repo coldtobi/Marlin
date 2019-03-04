@@ -48,7 +48,15 @@ constexpr uint8_t DGUS_CMD_READVAR = 0x83;
   bool dguslcd_local_debug = true;
 #endif
 
-DGUSScreenVariableHandler ScreenHandler;
+#if ENABLED(SDSUPPORT)
+  int16_t DGUSScreenVariableHandler::top_file = 0;
+  int16_t DGUSScreenVariableHandler::file_to_print = 0;
+  static ExtUI::FileList filelist;
+#endif
+
+uint16_t DGUSScreenVariableHandler::ConfirmVP;
+
+//DGUSScreenVariableHandler ScreenHandler;
 
 DGUSLCD_Screens DGUSScreenVariableHandler::current_screen;
 DGUSLCD_Screens DGUSScreenVariableHandler::past_screens[NUM_PAST_SCREENS];
@@ -56,7 +64,7 @@ uint8_t DGUSScreenVariableHandler::update_ptr;
 uint16_t DGUSScreenVariableHandler::skipVP;
 bool DGUSScreenVariableHandler::ScreenComplete;
 
-DGUSDisplay dgusdisplay;
+//DGUSDisplay dgusdisplay;
 
 rx_datagram_state_t DGUSDisplay::rx_datagram_state = DGUS_IDLE;
 uint8_t DGUSDisplay::rx_datagram_len = 0;
@@ -194,6 +202,115 @@ void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable 
     char *tmp = (char*) ref_to_this.memadr;
     dgusdisplay.WriteVariablePGM(ref_to_this.VP, tmp, ref_to_this.size, true);
   }
+}
+
+
+#if ENABLED(SDSUPPORT)
+
+  void DGUSScreenVariableHandler::ScreenChangeHookIfSD(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
+    if (ExtUI::isMediaInserted()) {
+      ScreenChangeHook(ref_to_this, ptr_to_new_value);
+      dgusdisplay.RequestScreen(current_screen);
+    }
+  }
+
+  void DGUSScreenVariableHandler::DGUSLCD_SD_ScrollFilelist(DGUS_VP_Variable& ref_to_this, void *ptr_to_new_value) {
+    DGUS_DEBUG(true); DGUS_ECHOLN(__FUNCTION__);
+    auto old_top = top_file;
+    int16_t scroll = (int16_t)swap16(*(uint16_t*)ptr_to_new_value);
+    if (scroll == 0) {
+      if(!filelist.isAtRootDir()) {
+        filelist.upDir();
+        top_file = 0;
+        ForceCompleteUpdate();
+      }
+    }
+    else {
+      top_file += scroll;
+      DGUS_ECHOPAIR("new topfile calculated:", top_file);
+      if (top_file < 0) {
+        top_file = 0;
+        DGUS_ECHOLN("Top of filelist reached");
+      }
+      else {
+        int16_t max_top = filelist.count() -  DGUS_SD_FILESPERSCREEN;
+        max_top = (max_top > 0) ? max_top :0 ;
+        if(top_file > max_top ) top_file = max_top;
+      }
+      DGUS_ECHOPAIR("new topfile adjusted:", top_file);
+    }
+
+    if (old_top != top_file) ForceCompleteUpdate();
+  }
+
+  void DGUSScreenVariableHandler::DGUSLCD_SD_FileSelected(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
+    DGUS_DEBUG(true); DGUS_ECHOLN(__FUNCTION__);
+    uint16_t touched_nr = (int16_t)swap16(*(uint16_t*)ptr_to_new_value) + top_file;
+    if (touched_nr > filelist.count()) return;
+    if (!filelist.seek(touched_nr)) return;
+    if (filelist.isDir()) {
+      filelist.changeDir(filelist.filename());
+      top_file = 0;
+      ForceCompleteUpdate();
+      return;
+    }
+
+    // Setup Confirmation screen
+    ConfirmVP = VP_SD_FileSelectConfirm;
+    file_to_print = touched_nr;
+    sendinfoscreen("", "Print file", filelist.filename(), "from SD Card?");
+    ScreenHandler.GotoScreen(DGUSLCD_SCREEN_CONFIRM);
+  }
+
+  void DGUSScreenVariableHandler::DGUSLCD_SD_StartPrint(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
+    DGUS_DEBUG(true); DGUS_ECHOLN(__FUNCTION__);
+    if(!filelist.seek(file_to_print)) return;
+    ExtUI::printFile(filelist.filename());
+    ScreenHandler.GotoScreen(DGUSLCD_SCREEN_STATUS);
+  }
+
+  void DGUSScreenVariableHandler::DGUSLCD_SD_SendFilename(DGUS_VP_Variable& ref_to_this) {
+    uint16_t target_line = (ref_to_this.VP - VP_SD_FileName0) / VP_SD_FileName_LEN;
+    //DGUS_DEBUG(true); DGUS_ECHOLNPAIR("DGUSLCD_SD_SendFilename",target_line);
+    if (target_line > DGUS_SD_FILESPERSCREEN) return;
+    char tmpfilename[VP_SD_FileName_LEN+1] = "";
+    ref_to_this.memadr = (void*)tmpfilename;
+    if (filelist.seek(top_file + target_line)) {
+      snprintf_P(tmpfilename, VP_SD_FileName_LEN, PSTR("%s%c"), filelist.filename(), filelist.isDir() ? '/' : 0);
+      DGUS_DEBUG(true);
+      DGUS_ECHOPAIR("count: ", filelist.count());
+      DGUS_ECHOPAIR(" FN(", top_file + target_line);
+      DGUS_ECHOLNPAIR("): ",tmpfilename);
+    }
+    DGUSLCD_SendStringToDisplay(ref_to_this);
+  }
+
+
+  void DGUSScreenVariableHandler::SDCardInserted() {
+    top_file = 0;
+    auto cs = ScreenHandler.getCurrentScreen();
+    if (cs == DGUSLCD_SCREEN_MAIN || cs == DGUSLCD_SCREEN_STATUS) {
+      ScreenHandler.GotoScreen(DGUSLCD_SCREEN_SDFILELIST);
+    }
+  }
+
+  void DGUSScreenVariableHandler::SDCardRemoved() {
+    if(ScreenHandler.getCurrentScreen() == DGUSLCD_SCREEN_SDFILELIST ||
+      ScreenHandler.getCurrentScreen() == DGUSLCD_SCREEN_CONFIRM ) {
+      ScreenHandler.GotoScreen(DGUSLCD_SCREEN_MAIN);
+    }
+  }
+
+  void DGUSScreenVariableHandler::SDCardError() {
+  }
+
+#endif // SDSUPPORT
+
+void DGUSScreenVariableHandler::ScreenConfirmedOK(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
+  DGUS_DEBUG(true); DGUS_ECHOLN(__FUNCTION__);
+  DGUS_VP_Variable ramcopy;
+  if (!populate_VPVar(ConfirmVP, &ramcopy)) return;
+  if (ramcopy.set_by_display_handler) ramcopy.set_by_display_handler(ramcopy, ptr_to_new_value);
 }
 
 const uint16_t* DGUSLCD_FindScreenVPMapList(uint8_t screen) {
@@ -476,6 +593,7 @@ void DGUSDisplay::InitDisplay() {
 
 void DGUSDisplay::WriteVariable(uint16_t adr, const void* values, uint8_t valueslen, bool isstr) {
   const char* myvalues = static_cast<const char*>(values);
+  if (!myvalues) myvalues = "";
   bool strend = false;
   WriteHeader(adr, DGUS_CMD_WRITEVAR, valueslen);
   while (valueslen--) {
@@ -490,6 +608,7 @@ void DGUSDisplay::WriteVariable(uint16_t adr, const void* values, uint8_t values
 
 void DGUSDisplay::WriteVariablePGM(uint16_t adr, const void* values, uint8_t valueslen, bool isstr) {
   const char* myvalues = static_cast<const char*>(values);
+  if (!myvalues) myvalues = PSTR("");
   bool strend = false;
   WriteHeader(adr, DGUS_CMD_WRITEVAR, valueslen);
   while (valueslen--) {

@@ -45,6 +45,8 @@ enum DGUSLCD_Screens : uint8_t {
   DGUSLCD_SCREEN_STATUS = 30,
   DGUSLCD_SCREEN_MANUALMOVE = 40,
   DGUSLCD_SCREEN_FANANDFEEDRATE = 44,
+  DGUSLCD_SCREEN_SDFILELIST = 50,
+  DGUSLCD_SCREEN_CONFIRM = 240,
   DGUSLCD_SCREEN_KILL = 250, ///< Kill Screen. Must always be 250 (to be able to display "Error wrong LCD Version")
   DGUSLCD_SCREEN_POPUP = 252,  ///< special target, popup screen will also return this code to say "return to previous screen"
   DGUSLDC_SCREEN_UNUSED = 255
@@ -71,6 +73,14 @@ constexpr uint16_t VP_UI_VERSION = 0x1000; // <Mayor*1000>+Minor -- displayed on
 constexpr uint16_t VP_SCREENCHANGE_ASK = 0x2000;
 constexpr uint16_t VP_SCREENCHANGE = 0x2001;   // Key-Return button to new menu pressed. Data contains target screen in low byte and info in high byte.
 constexpr uint16_t VP_TEMP_ALL_OFF = 0x2002;   // Turn all heaters off. Value arbitrary ;)=
+constexpr uint16_t VP_SCREENCHANGE_WHENSD = 0x2003; // "Print" Button touched -- go only there if there is an SD Card.
+
+constexpr uint16_t VP_CONFIRMED = 0x2010; // OK on confirm screen.
+
+// Buttons on the SD-Card File listing.
+constexpr uint16_t VP_SD_ScrollEvent = 0x2020; // Data: 0 for "up a directory", numbers are the amount to scroll, e.g -1 one up, 1 one down
+constexpr uint16_t VP_SD_FileSelected = 0x2022; // Data: 0 for "up a directory", numbers are the amount to scroll, e.g -1 one up, 1 one down
+constexpr uint16_t VP_SD_FileSelectConfirm = 0x2024; // (This is a virtual VP and emulated by the Confirm Screen when a file has been confirmed)
 
 // Controls for movement (we can't use the incremental / decremental feature of the display at this feature works only with 16 bit values
 // (which would limit us to 655.35mm, which is likely not a problem for common setups, but i don't want to rule out hangprinters support)
@@ -116,6 +126,15 @@ constexpr uint16_t VP_PrintProgress_Percentage = 0x3104; // 2 Byte Integer (0..1
 constexpr uint16_t VP_XPos = 0x3110;  // 4 Byte Fixed point number; format xxx.yy
 constexpr uint16_t VP_YPos = 0x3112;  // 4 Byte Fixed point number; format xxx.yy
 constexpr uint16_t VP_ZPos = 0x3114;  // 4 Byte Fixed point number; format xxx.yy
+
+// SDCard File Listing
+constexpr uint16_t VP_SD_FileName_LEN = 32; // LEN is shared for all entries.
+constexpr uint16_t DGUS_SD_FILESPERSCREEN = 5; // FIXME move that info to the display and read it from there.
+constexpr uint16_t VP_SD_FileName0 = 0x3200;
+constexpr uint16_t VP_SD_FileName1 = 0x3220;
+constexpr uint16_t VP_SD_FileName2 = 0x3240;
+constexpr uint16_t VP_SD_FileName3 = 0x3260;
+constexpr uint16_t VP_SD_FileName4 = 0x3280;
 
 // SPs for certain variables...
 // located at 0x5000 and up

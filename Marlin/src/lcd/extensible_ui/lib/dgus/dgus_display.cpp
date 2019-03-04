@@ -46,9 +46,16 @@ void onStartup() {
    while(!ScreenHandler.loop());  // Wait if there is something still to be sent to the display.
  }
 
- void onMediaInserted() {};
- void onMediaError() {};
- void onMediaRemoved() {};
+ void onMediaInserted() {
+   ScreenHandler.SDCardInserted();
+ }
+
+ void onMediaError() { }
+
+ void onMediaRemoved() {
+   ScreenHandler.SDCardRemoved();
+ }
+
  void onPlayTone(const uint16_t frequency, const uint16_t duration) {}
  void onPrintTimerStarted() {}
  void onPrintTimerPaused() {}

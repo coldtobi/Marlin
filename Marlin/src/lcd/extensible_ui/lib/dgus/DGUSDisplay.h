@@ -121,6 +121,29 @@ public:
   // Hook for manual move.
   static void HandleManualMove(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
 
+  #if ENABLED(SDSUPPORT)
+    // Callcack for VP "Display wants to change screen when there is a SD card"
+    static void ScreenChangeHookIfSD(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
+    /// Scroll buttons on the filelisting screen.
+    static void DGUSLCD_SD_ScrollFilelist(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
+    /// File touched.
+    static void DGUSLCD_SD_FileSelected(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
+    /// start print after confirmation received.
+    static void DGUSLCD_SD_StartPrint(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
+
+    /// Send a single filename to the display.
+    static void DGUSLCD_SD_SendFilename(DGUS_VP_Variable &ref_to_this);
+
+    /// Marlin informed us that a new SD has been inserted.
+    static void SDCardInserted();
+    /// Marlin informed us that the SD Card has been removed();
+    static void SDCardRemoved();
+    /// Marlin informed us about an bad SD Card.
+    static void SDCardError();
+  #endif
+
+  // OK Button the Confirm screen.
+  static void ScreenConfirmedOK(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
 
   // Update data after went to new screen (by display or by GotoScreen)
   // remember: store the last displayed screen, so that one can get back
@@ -200,6 +223,10 @@ private:
 
   static uint16_t ConfirmVP;    ///< context for confirm screen (VP that will be emulated-sent on "OK").
 
+  #if ENABLED(SDSUPPORT)
+    static int16_t top_file;    ///< file on top of file chooser
+    static int16_t file_to_print; ///< touched file to be confimed
+  #endif
 
 };
 
