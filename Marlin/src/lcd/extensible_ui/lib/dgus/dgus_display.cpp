@@ -15,6 +15,12 @@ void onStartup() {
     ScreenHandler.UpdateScreenVPData();
   }
 
+void OnShowBootscreen() { /* handled by dgusdisplay.InitDisplay() already */};
+
+void OnExitBootscreen() {
+  ScreenHandler.GotoScreen(DGUSLCD_SCREEN_MAIN);
+};
+
  void onIdle() {
    ScreenHandler.loop();
  }
