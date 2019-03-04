@@ -45,7 +45,7 @@ constexpr uint8_t DGUS_CMD_WRITEVAR = 0x82;
 constexpr uint8_t DGUS_CMD_READVAR = 0x83;
 
 #if ENABLED(DEBUG_DGUSLCD)
-  bool dguslcd_local_debug = true;
+  bool dguslcd_local_debug; // = false;
 #endif
 
 #if ENABLED(SDSUPPORT)
@@ -145,6 +145,56 @@ bool populate_VPVar(uint16_t VP, DGUS_VP_Variable *ramcopy) {
   if (!pvp) return false;
   memcpy_P(ramcopy, pvp, sizeof(DGUS_VP_Variable));
   return true;
+}
+
+void DGUSScreenVariableHandler::sendinfoscreenPGM(const char* line1, const char* line2, const char* line3, const char* line4) {
+  DGUS_VP_Variable ramcopy;
+  if (populate_VPVar(VP_MSGSTR1, &ramcopy)) {
+    ramcopy.memadr = (void*) line1;
+    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(ramcopy);
+  }
+  if (populate_VPVar(VP_MSGSTR2, &ramcopy)) {
+    ramcopy.memadr = (void*) line2;
+    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(ramcopy);
+  }
+  if (populate_VPVar(VP_MSGSTR3, &ramcopy)) {
+    ramcopy.memadr = (void*) line3;
+    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(ramcopy);
+  }
+  if (populate_VPVar(VP_MSGSTR4, &ramcopy)) {
+    ramcopy.memadr = (void*) line4;
+    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(ramcopy);
+  }
+}
+
+void DGUSScreenVariableHandler::sendinfoscreen(const char* line1, const char* line2, const char* line3, const char* line4) {
+  DGUS_VP_Variable ramcopy;
+  if (populate_VPVar(VP_MSGSTR1, &ramcopy)) {
+    ramcopy.memadr = (void*) line1;
+    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(ramcopy);
+  }
+  if (populate_VPVar(VP_MSGSTR2, &ramcopy)) {
+    ramcopy.memadr = (void*) line2;
+    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(ramcopy);
+  }
+  if (populate_VPVar(VP_MSGSTR3, &ramcopy)) {
+    ramcopy.memadr = (void*) line3;
+    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(ramcopy);
+  }
+  if (populate_VPVar(VP_MSGSTR4, &ramcopy)) {
+    ramcopy.memadr = (void*) line4;
+    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(ramcopy);
+  }
+}
+
+void DGUSScreenVariableHandler::setstatusmessage(const char *msg) {
+  DGUS_VP_Variable ramcopy;
+  if (populate_VPVar(VP_M117, &ramcopy)) {
+    ramcopy.memadr = (void*) msg;
+    if (ramcopy.send_to_display_handler) {
+      ramcopy.send_to_display_handler(ramcopy);
+    }
+  }
 }
 
 // Send a 8 bit or 16 bit value to the display.

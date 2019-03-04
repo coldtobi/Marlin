@@ -110,6 +110,11 @@ public:
 
   static bool loop();
 
+  static void sendinfoscreenPGM(const char* line1, const char* line2, const char* line3, const char* line4);
+  static void sendinfoscreen(const char* line1, const char* line2, const char* line3, const char* line4);
+  /// "M117" Message -- msg is a RAM ptr.
+  static void setstatusmessage(const char* msg);
+
   // Callback for VP "Display wants to change screen on idle printer"
   static void ScreenChangeHookIfIdle(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
   // Callback for VP "Screen has been changed"
@@ -130,7 +135,6 @@ public:
     static void DGUSLCD_SD_FileSelected(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
     /// start print after confirmation received.
     static void DGUSLCD_SD_StartPrint(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
-
     /// Send a single filename to the display.
     static void DGUSLCD_SD_SendFilename(DGUS_VP_Variable &ref_to_this);
 
@@ -210,7 +214,7 @@ public:
   /// Has all VPs sent to the screen
   static inline bool IsScreenComplete() { return ScreenComplete; }
 
-private:
+  static inline DGUSLCD_Screens getCurrentScreen() { return current_screen; }
 
 private:
   static DGUSLCD_Screens current_screen;  ///< currently on screen
