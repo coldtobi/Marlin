@@ -688,6 +688,13 @@ bool DGUSScreenVariableHandler::loop() {
     UpdateScreenVPData();
   }
 
+  #if ENABLED(SHOW_BOOTSCREEN)
+    static bool booted = false;
+    if (!booted && ms >= BOOTSCREEN_TIMEOUT) {
+      booted = true;
+      GotoScreen(DGUSLCD_SCREEN_MAIN);
+    }
+  #endif
   return IsScreenComplete();
 }
 
