@@ -216,6 +216,10 @@ public:
 
   static inline DGUSLCD_Screens getCurrentScreen() { return current_screen; }
 
+  static inline void SetupConfirmAction( void (*f)()) {
+    confirmaction_cb = f;
+  }
+
 private:
   static DGUSLCD_Screens current_screen;  ///< currently on screen
   static constexpr uint8_t NUM_PAST_SCREENS = 4;
@@ -232,6 +236,7 @@ private:
     static int16_t file_to_print; ///< touched file to be confimed
   #endif
 
+  static void (*confirmaction_cb)();
 };
 
 extern DGUSScreenVariableHandler ScreenHandler;

@@ -48,13 +48,15 @@ constexpr uint8_t DGUS_CMD_READVAR = 0x83;
   bool dguslcd_local_debug; // = false;
 #endif
 
+uint16_t DGUSScreenVariableHandler::ConfirmVP;
+
 #if ENABLED(SDSUPPORT)
   int16_t DGUSScreenVariableHandler::top_file = 0;
   int16_t DGUSScreenVariableHandler::file_to_print = 0;
   static ExtUI::FileList filelist;
 #endif
 
-uint16_t DGUSScreenVariableHandler::ConfirmVP;
+void (*DGUSScreenVariableHandler::confirmaction_cb)() = nullptr;
 
 //DGUSScreenVariableHandler ScreenHandler;
 
@@ -230,7 +232,6 @@ void DGUSScreenVariableHandler::DGUSLCD_PercentageToUint8(DGUS_VP_Variable &ref_
     *(uint8_t*)ref_to_this.memadr = map(constrain(value, 0, 100), 0, 100, 0, 255);
   }
 }
-
 
 // Sends a (RAM located) string to the DGUS Display
 // (Note: The DGUS Display does not clear after the \0, you have to
@@ -409,6 +410,7 @@ void DGUSScreenVariableHandler::ScreenChangeHook(DGUS_VP_Variable &ref_to_this, 
   if (target == DGUSLCD_SCREEN_POPUP) {
     // special handling for popup is to return to previous menu
     DGUS_ECHOLNPAIR("popup return to ", past_screens[0]);
+    if (current_screen == DGUSLCD_SCREEN_POPUP && confirmaction_cb) confirmaction_cb();
     PopToOldScreen();
     return;
   }
@@ -439,10 +441,10 @@ void DGUSScreenVariableHandler::HandleTemperatureChanged(DGUS_VP_Variable &ref_t
     break;
 #endif
 #if HOTENDS >= 2
-    case VP_T_E2_Set:
+  case VP_T_E2_Set:
     thermalManager.setTargetHotend(newvalue, 1);
     acceptedvalue = thermalManager.target_temperature[0];
-    break;
+  break;
 #endif
 #if HAS_HEATED_BED
   case VP_T_Bed_Set:
@@ -460,7 +462,6 @@ void DGUSScreenVariableHandler::HandleTemperatureChanged(DGUS_VP_Variable &ref_t
 }
 
 void DGUSScreenVariableHandler::HandleManualMove(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-  //DGUS_DEBUG(true);
   DGUS_ECHOLNPGM("HandleManualMove");
 
   int16_t movevalue = swap16(*(uint16_t*) ptr_to_new_value);

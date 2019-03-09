@@ -41,9 +41,21 @@ void onStartup() {
  void onPrintTimerStopped() {}
  void onFilamentRunout() {}
 
- void onStatusChanged(const char * const msg) {
+  void onUserConfirmRequired(const char *msg) {
+    if (msg) {
+      ScreenHandler.sendinfoscreen("Please confirm.", "", msg, "");
+      ScreenHandler.SetupConfirmAction(ExtUI::setUserConfirmed);
+      ScreenHandler.GotoScreen(DGUSLCD_SCREEN_POPUP);
+    } else
+    if (ScreenHandler.getCurrentScreen() == DGUSLCD_SCREEN_POPUP ) {
+      ScreenHandler.SetupConfirmAction(nullptr);
+      ScreenHandler.PopToOldScreen();
+    }
+  }
+
+  void onStatusChanged(const char * const msg) {
      ScreenHandler.setstatusmessage(msg);
- }
+  }
 
  void onFactoryReset() {}
  void onLoadSettings() {}
