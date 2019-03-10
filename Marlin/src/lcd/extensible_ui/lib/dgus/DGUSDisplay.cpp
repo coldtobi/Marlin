@@ -353,6 +353,10 @@ void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable 
   }
 
   void DGUSScreenVariableHandler::SDCardError() {
+    DGUSScreenVariableHandler::SDCardRemoved();
+    ScreenHandler.sendinfoscreen("NOTICE", "", "SD card error", "");
+    ScreenHandler.SetupConfirmAction(ExtUI::setUserConfirmed);
+    ScreenHandler.GotoScreen(DGUSLCD_SCREEN_POPUP);
   }
 
 #endif // SDSUPPORT

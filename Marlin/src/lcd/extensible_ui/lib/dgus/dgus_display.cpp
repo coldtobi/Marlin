@@ -29,7 +29,9 @@ void onStartup() {
    ScreenHandler.SDCardInserted();
  }
 
- void onMediaError() { }
+ void onMediaError() {
+   ScreenHandler.SDCardError();
+ }
 
  void onMediaRemoved() {
    ScreenHandler.SDCardRemoved();
