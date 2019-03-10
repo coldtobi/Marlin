@@ -36,6 +36,7 @@
 #include "../../../../module/temperature.h"
 #include "../../../../module/motion.h"
 #include "../../../../gcode/queue.h"
+#include "../../../../module/planner.h"
 
 // Preamble... 2 Bytes, usually 0x5A 0xA5, but configurable
 constexpr uint8_t DGUS_HEADER1 = 0x5A;
@@ -462,6 +463,29 @@ void DGUSScreenVariableHandler::HandleTemperatureChanged(DGUS_VP_Variable &ref_t
 
   // reply to display the new value to update the view if the new value was rejected by the Thermal Manager.
   if (newvalue != acceptedvalue && ref_to_this.send_to_display_handler) ref_to_this.send_to_display_handler(ref_to_this);
+  ScreenHandler.skipVP = ref_to_this.VP; // don't overwrite value the next update time as the display might autoincrement in parallel
+}
+
+void DGUSScreenVariableHandler::HandleFlowRateChanged(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
+  uint16_t newvalue = swap16(*(uint16_t*) ptr_to_new_value);
+  uint8_t target_extruder;
+  switch(ref_to_this.VP) {
+  #if (HOTENDS >= 1)
+    case VP_Flowrate_E1:
+      target_extruder = 0;
+      break;
+  #endif
+  #if (HOTENDS >= 2)
+    case VP_Flowrate_E2:
+      target_extruder = 1;
+      break;
+  #endif
+  default:
+    return;
+  }
+
+  planner.flow_percentage[target_extruder] = newvalue;
+  planner.refresh_e_factor(target_extruder);
   ScreenHandler.skipVP = ref_to_this.VP; // don't overwrite value the next update time as the display might autoincrement in parallel
 }
 

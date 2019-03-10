@@ -45,6 +45,7 @@ enum DGUSLCD_Screens : uint8_t {
   DGUSLCD_SCREEN_STATUS = 30,
   DGUSLCD_SCREEN_MANUALMOVE = 40,
   DGUSLCD_SCREEN_FANANDFEEDRATE = 44,
+  DGUSLCD_SCREEN_FLOWRATES = 46,
   DGUSLCD_SCREEN_SDFILELIST = 50,
   DGUSLCD_SCREEN_CONFIRM = 240,
   DGUSLCD_SCREEN_KILL = 250, ///< Kill Screen. Must always be 250 (to be able to display "Error wrong LCD Version")
@@ -64,8 +65,21 @@ enum DGUSLCD_Screens : uint8_t {
 // As there is plenty of space (at least most displays have >8k RAM), we do not pack them too tight,
 // so that we can keep variables nicely together in the address space.
 
-// UI Version always on 0x1000 so that the firmware can check this and bail out.
-constexpr uint16_t VP_UI_VERSION = 0x1000; // <Mayor*1000>+Minor -- displayed on bootscreen. This is 4 bytes.
+// UI Version always on 0x1000...0x1002 so that the firmware can check this and bail out.
+constexpr uint16_t VP_UI_VERSION_MAJOR = 0x1000;  // Major -- incremented when incompatible
+constexpr uint16_t VP_UI_VERSION_MINOR = 0x1001;  // Minor -- incremented on new features, but compatible
+constexpr uint16_t VP_UI_VERSION_PATCH = 0x1002;  // Patch -- fixed which do not change functionality.
+constexpr uint16_t VP_UI_FLAVOUR       = 0x1010;  // lets reserve 16 bytes here to determine if UI is suitable for this Marlin. tbd.
+
+// Storage space for the Killscreen messages. 0x1100 - 0x1200 . Reused for the popup.
+constexpr uint16_t VP_MSGSTR1 = 0x1100;
+constexpr uint8_t VP_MSGSTR1_LEN = 0x20;  // might be more place for it...
+constexpr uint16_t VP_MSGSTR2 = 0x1140;
+constexpr uint8_t VP_MSGSTR2_LEN = 0x20;
+constexpr uint16_t VP_MSGSTR3 = 0x1180;
+constexpr uint8_t VP_MSGSTR3_LEN = 0x20;
+constexpr uint16_t VP_MSGSTR4 = 0x11C0;
+constexpr uint8_t VP_MSGSTR4_LEN = 0x20;
 
 // Screenchange request for screens that only make sense when printer is idle.
 // e.g movement is only allowed if printer is not printing.
@@ -79,7 +93,7 @@ constexpr uint16_t VP_CONFIRMED = 0x2010; // OK on confirm screen.
 
 // Buttons on the SD-Card File listing.
 constexpr uint16_t VP_SD_ScrollEvent = 0x2020; // Data: 0 for "up a directory", numbers are the amount to scroll, e.g -1 one up, 1 one down
-constexpr uint16_t VP_SD_FileSelected = 0x2022; // Data: 0 for "up a directory", numbers are the amount to scroll, e.g -1 one up, 1 one down
+constexpr uint16_t VP_SD_FileSelected = 0x2022; // Number of file field selected.
 constexpr uint16_t VP_SD_FileSelectConfirm = 0x2024; // (This is a virtual VP and emulated by the Confirm Screen when a file has been confirmed)
 
 // Controls for movement (we can't use the incremental / decremental feature of the display at this feature works only with 16 bit values
@@ -91,32 +105,44 @@ constexpr uint16_t VP_MOVE_Y = 0x2110;
 constexpr uint16_t VP_MOVE_Z = 0x2120;
 constexpr uint16_t VP_HOME_ALL = 0x2130;
 
-// Storage space for the Killscreen messages. 0x1100 - 0x1200 . Reused for the popup.
-constexpr uint16_t VP_MSGSTR1 = 0x1100;
-constexpr uint8_t VP_MSGSTR1_LEN = 0x20;  // might be more place for it...
-constexpr uint16_t VP_MSGSTR2 = 0x1140;
-constexpr uint8_t VP_MSGSTR2_LEN = 0x20;
-constexpr uint16_t VP_MSGSTR3 = 0x1180;
-constexpr uint8_t VP_MSGSTR3_LEN = 0x20;
-constexpr uint16_t VP_MSGSTR4 = 0x11C0;
-constexpr uint8_t VP_MSGSTR4_LEN = 0x20;
-
 // Firmware version on the boot screen.
 constexpr uint16_t VP_MARLIN_VERSION = 0x3000;
 constexpr uint8_t VP_MARLIN_VERSION_LEN = 16;   // there is more space on the display, if needed.
 
 // Place for status messages.
-constexpr uint16_t VP_M117 = 0x3040;
+constexpr uint16_t VP_M117 = 0x3020;
 constexpr uint8_t VP_M117_LEN = 0x20;
 
 // Temperatures.
-constexpr uint16_t VP_T_E1_Is = 0x3080;  // 4 Byte Integer
-constexpr uint16_t VP_T_E1_Set = 0x3082; // 2 Byte Integer
-constexpr uint16_t VP_T_E2_Is = 0x3084;  // 4 Byte Integer
-constexpr uint16_t VP_T_E2_Set = 0x3086; // 2 Byte Integer
+constexpr uint16_t VP_T_E1_Is = 0x3060;  // 4 Byte Integer
+constexpr uint16_t VP_T_E1_Set = 0x3062; // 2 Byte Integer
+constexpr uint16_t VP_T_E2_Is = 0x3064;  // 4 Byte Integer
 
-constexpr uint16_t VP_T_Bed_Is = 0x3090;  // 4 Byte Integer
-constexpr uint16_t VP_T_Bed_Set = 0x3092; // 2 Byte Integer
+// reserved to support up to 6 Extruders later.
+//constexpr uint16_t VP_T_E2_Set = 0x3066; // 2 Byte Integer
+//constexpr uint16_t VP_T_E3_Is = 0x3068;  // 4 Byte Integer
+//constexpr uint16_t VP_T_E3_Set = 0x306A; // 2 Byte Integer
+//constexpr uint16_t VP_T_E4_Is = 0x306C;  // 4 Byte Integer
+//constexpr uint16_t VP_T_E4_Set = 0x306E; // 2 Byte Integer
+//constexpr uint16_t VP_T_E5_Is = 0x3070;  // 4 Byte Integer
+//constexpr uint16_t VP_T_E5_Set = 0x3072; // 2 Byte Integer
+//constexpr uint16_t VP_T_E5_Is = 0x3074;  // 4 Byte Integer
+//constexpr uint16_t VP_T_E5_Set = 0x3076; // 2 Byte Integer
+//constexpr uint16_t VP_T_E6_Is = 0x3078;  // 4 Byte Integer
+//constexpr uint16_t VP_T_E6_Set = 0x307A; // 2 Byte Integer
+
+constexpr uint16_t VP_T_Bed_Is = 0x3080;  // 4 Byte Integer
+constexpr uint16_t VP_T_Bed_Set = 0x3082; // 2 Byte Integer
+
+constexpr uint16_t VP_Flowrate_E1 = 0x3090; // 2 Byte Integer
+constexpr uint16_t VP_Flowrate_E2 = 0x3092; // 2 Byte Integer
+
+// reserved
+//constexpr uint16_t VP_Flowrate_E3 = 0x3094;
+//constexpr uint16_t VP_Flowrate_E4 = 0x3096;
+//constexpr uint16_t VP_Flowrate_E5 = 0x3098;
+//constexpr uint16_t VP_Flowrate_E6 = 0x309A;
+
 
 constexpr uint16_t VP_Fan_Percentage = 0x3100;  // 2 Byte Integer (0..100)
 constexpr uint16_t VP_Feedrate_Percentage = 0x3102; // 2 Byte Integer (0..100)

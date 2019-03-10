@@ -88,6 +88,12 @@ const uint16_t VPList_FanAndFeedrate[] PROGMEM = {
   0x0000
 };
 
+const uint16_t VPList_SD_FlowRates[] PROGMEM = {
+    VP_Flowrate_E1, VP_Flowrate_E2,
+    0x0000
+};
+
+
 const uint16_t VPList_SDFileList[] PROGMEM = {
     VP_SD_FileName0, VP_SD_FileName1, VP_SD_FileName2, VP_SD_FileName3, VP_SD_FileName4,
     0x0000
@@ -100,6 +106,7 @@ const struct VPMapping VPMap[] PROGMEM = {
   { DGUSLCD_SCREEN_STATUS, VPList_Status },
   { DGUSLCD_SCREEN_MANUALMOVE, VPList_ManualMove },
   { DGUSLCD_SCREEN_FANANDFEEDRATE, VPList_FanAndFeedrate },
+  { DGUSLCD_SCREEN_FLOWRATES, VPList_SD_FlowRates },
   { DGUSLCD_SCREEN_SDFILELIST, VPList_SDFileList },
   { 0 , nullptr } // List is terminated with an nullptr as table entry.
 };
@@ -135,13 +142,15 @@ const struct DGUS_VP_Variable ListOfVP[] PROGMEM = {
   #if HOTENDS >= 1
     VPHELPER(VP_T_E1_Is, &thermalManager.current_temperature[0], nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<0>),
     VPHELPER(VP_T_E1_Set, &thermalManager.target_temperature[0], DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
+    VPHELPER(VP_Flowrate_E1, nullptr, DGUSScreenVariableHandler::HandleFlowRateChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
   #endif
   #if HOTENDS > 2
     VPHELPER(VP_T_E2_I, &thermalManager.current_temperature[1], nullptr, DGUSLCD_SendFloatAsLongValueToDisplay<0>),
     VPHELPER(VP_T_E2_S, &thermalManager.target_temperature[1], DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
+    VPHELPER(VP_Flowrate_E2, nullptr, DGUSScreenVariableHandler::HandleFlowRateChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
   #endif
   #if HOTENDS > 3
-    #warning More than 2 Hotends currently not implemented on the Display UI design.
+    #error More than 2 Hotends currently not implemented on the Display UI design.
   #endif
   #if HAS_HEATED_BED
     VPHELPER(VP_T_Bed_Is, &thermalManager.current_temperature_bed, nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<0>),

@@ -123,6 +123,8 @@ public:
   static void HandleAllHeatersOff(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
   // Hook for "Change this temperature"
   static void HandleTemperatureChanged(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
+  // Hook for "Change Flowrate"
+  static void HandleFlowRateChanged(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
   // Hook for manual move.
   static void HandleManualMove(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
 
