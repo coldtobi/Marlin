@@ -147,21 +147,21 @@ const struct DGUS_VP_Variable ListOfVP[] PROGMEM = {
 
   // Temperature Data
   #if HOTENDS >= 1
-    VPHELPER(VP_T_E1_Is, &thermalManager.current_temperature[0], nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<0>),
-    VPHELPER(VP_T_E1_Set, &thermalManager.target_temperature[0], DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
+    VPHELPER(VP_T_E1_Is, &thermalManager.temp_hotend[0].current, nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<0>),
+    VPHELPER(VP_T_E1_Set, &thermalManager.temp_hotend[0].target, DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
     VPHELPER(VP_Flowrate_E1, nullptr, DGUSScreenVariableHandler::HandleFlowRateChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
   #endif
   #if HOTENDS > 2
-    VPHELPER(VP_T_E2_I, &thermalManager.current_temperature[1], nullptr, DGUSLCD_SendFloatAsLongValueToDisplay<0>),
-    VPHELPER(VP_T_E2_S, &thermalManager.target_temperature[1], DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
+    VPHELPER(VP_T_E2_I, &thermalManager.temp_hotend[1].current, nullptr, DGUSLCD_SendFloatAsLongValueToDisplay<0>),
+    VPHELPER(VP_T_E2_S, &thermalManager.temp_hotend[1].target, DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
     VPHELPER(VP_Flowrate_E2, nullptr, DGUSScreenVariableHandler::HandleFlowRateChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
   #endif
   #if HOTENDS > 3
     #error More than 2 Hotends currently not implemented on the Display UI design.
   #endif
   #if HAS_HEATED_BED
-    VPHELPER(VP_T_Bed_Is, &thermalManager.current_temperature_bed, nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<0>),
-    VPHELPER(VP_T_Bed_Set, &thermalManager.target_temperature_bed, DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
+    VPHELPER(VP_T_Bed_Is, &thermalManager.temp_bed.current, nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<0>),
+    VPHELPER(VP_T_Bed_Set, &thermalManager.temp_bed.target, DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
   #endif
 
   // Fan Data.
