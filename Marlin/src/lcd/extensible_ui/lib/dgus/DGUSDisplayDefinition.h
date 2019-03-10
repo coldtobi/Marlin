@@ -47,6 +47,7 @@ enum DGUSLCD_Screens : uint8_t {
   DGUSLCD_SCREEN_FANANDFEEDRATE = 44,
   DGUSLCD_SCREEN_FLOWRATES = 46,
   DGUSLCD_SCREEN_SDFILELIST = 50,
+  DGUSLCD_SCREEN_SDPRINTMANIPULATION = 52,
   DGUSLCD_SCREEN_CONFIRM = 240,
   DGUSLCD_SCREEN_KILL = 250, ///< Kill Screen. Must always be 250 (to be able to display "Error wrong LCD Version")
   DGUSLCD_SCREEN_POPUP = 252,  ///< special target, popup screen will also return this code to say "return to previous screen"
@@ -95,6 +96,9 @@ constexpr uint16_t VP_CONFIRMED = 0x2010; // OK on confirm screen.
 constexpr uint16_t VP_SD_ScrollEvent = 0x2020; // Data: 0 for "up a directory", numbers are the amount to scroll, e.g -1 one up, 1 one down
 constexpr uint16_t VP_SD_FileSelected = 0x2022; // Number of file field selected.
 constexpr uint16_t VP_SD_FileSelectConfirm = 0x2024; // (This is a virtual VP and emulated by the Confirm Screen when a file has been confirmed)
+
+constexpr uint16_t VP_SD_ResumePauseAbort = 0x2026; // Resume(Data=0), Pause(Data=1), Abort(Data=2) SD Card prints
+constexpr uint16_t VP_SD_AbortPrintConfirm = 0x2028; // Abort print confirmation (virtual, will be injected by the confirm dialog)
 
 // Controls for movement (we can't use the incremental / decremental feature of the display at this feature works only with 16 bit values
 // (which would limit us to 655.35mm, which is likely not a problem for common setups, but i don't want to rule out hangprinters support)
@@ -147,6 +151,8 @@ constexpr uint16_t VP_Flowrate_E2 = 0x3092; // 2 Byte Integer
 constexpr uint16_t VP_Fan_Percentage = 0x3100;  // 2 Byte Integer (0..100)
 constexpr uint16_t VP_Feedrate_Percentage = 0x3102; // 2 Byte Integer (0..100)
 constexpr uint16_t VP_PrintProgress_Percentage = 0x3104; // 2 Byte Integer (0..100)
+
+constexpr uint16_t VP_PrintTime = 0x3106; // 4 Bytes BSD coded. hh:mm
 
 // Actual Position
 constexpr uint16_t VP_XPos = 0x3110;  // 4 Byte Fixed point number; format xxx.yy

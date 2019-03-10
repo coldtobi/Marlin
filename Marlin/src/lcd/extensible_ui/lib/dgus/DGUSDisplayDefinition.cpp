@@ -99,6 +99,12 @@ const uint16_t VPList_SDFileList[] PROGMEM = {
     0x0000
 };
 
+const uint16_t VPList_SD_PrintManipulation[] PROGMEM = {
+    VP_PrintProgress_Percentage, VP_PrintTime,
+    0x0000
+};
+
+
 const struct VPMapping VPMap[] PROGMEM = {
   { DGUSLCD_SCREEN_BOOT, VPList_Boot },
   { DGUSLCD_SCREEN_MAIN, VPList_Main },
@@ -107,6 +113,7 @@ const struct VPMapping VPMap[] PROGMEM = {
   { DGUSLCD_SCREEN_MANUALMOVE, VPList_ManualMove },
   { DGUSLCD_SCREEN_FANANDFEEDRATE, VPList_FanAndFeedrate },
   { DGUSLCD_SCREEN_FLOWRATES, VPList_SD_FlowRates },
+  { DGUSLCD_SCREEN_SDPRINTMANIPULATION, VPList_SD_PrintManipulation },
   { DGUSLCD_SCREEN_SDFILELIST, VPList_SDFileList },
   { 0 , nullptr } // List is terminated with an nullptr as table entry.
 };

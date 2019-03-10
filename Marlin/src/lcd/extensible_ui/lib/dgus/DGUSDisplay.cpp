@@ -260,9 +260,18 @@ void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable 
 #if ENABLED(SDSUPPORT)
 
   void DGUSScreenVariableHandler::ScreenChangeHookIfSD(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-    if (ExtUI::isMediaInserted()) {
+    // default action when there is a SD card, but not printing
+    if (ExtUI::isMediaInserted() && !ExtUI::isPrintingFromMedia()) {
       ScreenChangeHook(ref_to_this, ptr_to_new_value);
       dgusdisplay.RequestScreen(current_screen);
+      return;
+    }
+    // if we are printing, we jump to two screens after the requested one.
+    // This should host e.g a print pause / print abort / print resume dialog.
+    // This concept allows to recycle this hook for other file
+    if (ExtUI::isPrintingFromMedia()) {
+      GotoScreen(DGUSLCD_SCREEN_SDPRINTMANIPULATION);
+      return;
     }
   }
 
@@ -347,8 +356,10 @@ void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable 
   }
 
   void DGUSScreenVariableHandler::SDCardRemoved() {
-    if(ScreenHandler.getCurrentScreen() == DGUSLCD_SCREEN_SDFILELIST ||
-      ScreenHandler.getCurrentScreen() == DGUSLCD_SCREEN_CONFIRM ) {
+    if(current_screen == DGUSLCD_SCREEN_SDFILELIST ||
+       current_screen == DGUSLCD_SCREEN_CONFIRM ||
+       current_screen == DGUSLCD_SCREEN_SDPRINTMANIPULATION
+    ) {
       ScreenHandler.GotoScreen(DGUSLCD_SCREEN_MAIN);
     }
   }
