@@ -37,6 +37,7 @@
 #include "../../../../module/motion.h"
 #include "../../../../gcode/queue.h"
 #include "../../../../module/planner.h"
+#include "../../../../sd/cardreader.h"
 
 // Preamble... 2 Bytes, usually 0x5A 0xA5, but configurable
 constexpr uint8_t DGUS_HEADER1 = 0x5A;
@@ -150,53 +151,51 @@ bool populate_VPVar(uint16_t VP, DGUS_VP_Variable *ramcopy) {
   return true;
 }
 
-void DGUSScreenVariableHandler::sendinfoscreenPGM(const char* line1, const char* line2, const char* line3, const char* line4) {
+void DGUSScreenVariableHandler::sendinfoscreen(const char* line1, const char* line2, const char* line3, const char* line4, bool l1inflash, bool l2inflash, bool l3inflash, bool l4inflash) {
   DGUS_VP_Variable ramcopy;
   if (populate_VPVar(VP_MSGSTR1, &ramcopy)) {
     ramcopy.memadr = (void*) line1;
-    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(ramcopy);
+    l1inflash ? DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(ramcopy) : DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(ramcopy);
   }
   if (populate_VPVar(VP_MSGSTR2, &ramcopy)) {
     ramcopy.memadr = (void*) line2;
-    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(ramcopy);
+    l2inflash ? DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(ramcopy) : DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(ramcopy);
   }
   if (populate_VPVar(VP_MSGSTR3, &ramcopy)) {
     ramcopy.memadr = (void*) line3;
-    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(ramcopy);
+    l3inflash ? DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(ramcopy) : DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(ramcopy);
   }
   if (populate_VPVar(VP_MSGSTR4, &ramcopy)) {
     ramcopy.memadr = (void*) line4;
-    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(ramcopy);
+    l4inflash ? DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(ramcopy) : DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(ramcopy);
   }
 }
 
-void DGUSScreenVariableHandler::sendinfoscreen(const char* line1, const char* line2, const char* line3, const char* line4) {
-  DGUS_VP_Variable ramcopy;
-  if (populate_VPVar(VP_MSGSTR1, &ramcopy)) {
-    ramcopy.memadr = (void*) line1;
-    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(ramcopy);
+void DGUSScreenVariableHandler::HandleUserConfirmationPopUp(uint16_t VP, const char* line1, const char* line2, const char* line3, const char* line4,
+    bool l1, bool l2, bool l3, bool l4) {
+  if (current_screen == DGUSLCD_SCREEN_CONFIRM) {
+    // Already showing a pop up, so we need to cancel that first.
+    PopToOldScreen();
   }
-  if (populate_VPVar(VP_MSGSTR2, &ramcopy)) {
-    ramcopy.memadr = (void*) line2;
-    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(ramcopy);
-  }
-  if (populate_VPVar(VP_MSGSTR3, &ramcopy)) {
-    ramcopy.memadr = (void*) line3;
-    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(ramcopy);
-  }
-  if (populate_VPVar(VP_MSGSTR4, &ramcopy)) {
-    ramcopy.memadr = (void*) line4;
-    DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(ramcopy);
-  }
+
+  ConfirmVP = VP;
+  sendinfoscreen(line1, line2, line3, line4, l1, l2, l3, l4);
+  ScreenHandler.GotoScreen(DGUSLCD_SCREEN_CONFIRM);
 }
 
 void DGUSScreenVariableHandler::setstatusmessage(const char *msg) {
   DGUS_VP_Variable ramcopy;
   if (populate_VPVar(VP_M117, &ramcopy)) {
     ramcopy.memadr = (void*) msg;
-    if (ramcopy.send_to_display_handler) {
-      ramcopy.send_to_display_handler(ramcopy);
-    }
+    DGUSLCD_SendStringToDisplay(ramcopy);
+  }
+}
+
+void DGUSScreenVariableHandler::setstatusmessagePGM(PGM_P const msg) {
+  DGUS_VP_Variable ramcopy;
+  if (populate_VPVar(VP_M117, &ramcopy)) {
+    ramcopy.memadr = (void*) msg;
+    DGUSLCD_SendStringToDisplayPGM(ramcopy);
   }
 }
 
@@ -238,41 +237,48 @@ void DGUSScreenVariableHandler::DGUSLCD_PercentageToUint8(DGUS_VP_Variable &ref_
 // (Note: The DGUS Display does not clear after the \0, you have to
 // overwrite the remainings with spaces.// ref_to_this.size has the display buffer size!
 void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplay(DGUS_VP_Variable &ref_to_this) {
-  if (ref_to_this.memadr) {
-    //DGUS_ECHOPAIR(" SendStringToDisplay ", ref_to_this.VP);
-    char *tmp = (char*) ref_to_this.memadr;
-    dgusdisplay.WriteVariable(ref_to_this.VP, tmp, ref_to_this.size, true);
-  }
+  char *tmp = (char*) ref_to_this.memadr;
+  dgusdisplay.WriteVariable(ref_to_this.VP, tmp, ref_to_this.size, true);
 }
 
 // Sends a (flash located) string to the DGUS Display
 // (Note: The DGUS Display does not clear after the \0, you have to
 // overwrite the remainings with spaces.// ref_to_this.size has the display buffer size!
 void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable &ref_to_this) {
-  if (ref_to_this.memadr) {
-    //DGUS_ECHOPAIR(" SendStringToDisplayPGM ", ref_to_this.VP);
-    char *tmp = (char*) ref_to_this.memadr;
-    dgusdisplay.WriteVariablePGM(ref_to_this.VP, tmp, ref_to_this.size, true);
-  }
+  char *tmp = (char*) ref_to_this.memadr;
+  dgusdisplay.WriteVariablePGM(ref_to_this.VP, tmp, ref_to_this.size, true);
 }
 
 
 #if ENABLED(SDSUPPORT)
 
   void DGUSScreenVariableHandler::ScreenChangeHookIfSD(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-    // default action when there is a SD card, but not printing
+    // default action executed when there is a SD card, but not printing
     if (ExtUI::isMediaInserted() && !ExtUI::isPrintingFromMedia()) {
       ScreenChangeHook(ref_to_this, ptr_to_new_value);
       dgusdisplay.RequestScreen(current_screen);
       return;
     }
+
     // if we are printing, we jump to two screens after the requested one.
     // This should host e.g a print pause / print abort / print resume dialog.
     // This concept allows to recycle this hook for other file
-    if (ExtUI::isPrintingFromMedia()) {
+    if (ExtUI::isPrintingFromMedia() && !card.flag.abort_sd_printing) {
       GotoScreen(DGUSLCD_SCREEN_SDPRINTMANIPULATION);
       return;
     }
+
+    // Don't let the user in the dark why there is no reaction.
+    if (!ExtUI::isMediaInserted()) {
+       setstatusmessagePGM(PSTR("No SD Card"));
+       return;
+    }
+    if (card.flag.abort_sd_printing) {
+       setstatusmessagePGM(PSTR("Aborting..."));
+       return;
+    }
+
+
   }
 
   void DGUSScreenVariableHandler::DGUSLCD_SD_ScrollFilelist(DGUS_VP_Variable& ref_to_this, void *ptr_to_new_value) {
@@ -317,10 +323,8 @@ void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable 
     }
 
     // Setup Confirmation screen
-    ConfirmVP = VP_SD_FileSelectConfirm;
     file_to_print = touched_nr;
-    sendinfoscreen("", "Print file", filelist.filename(), "from SD Card?");
-    ScreenHandler.GotoScreen(DGUSLCD_SCREEN_CONFIRM);
+    HandleUserConfirmationPopUp(VP_SD_FileSelectConfirm, nullptr, PSTR("Print file"), filelist.filename(), PSTR("from SD Card?"), true, true, false, true);
   }
 
   void DGUSScreenVariableHandler::DGUSLCD_SD_StartPrint(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
@@ -328,6 +332,38 @@ void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable 
     if(!filelist.seek(file_to_print)) return;
     ExtUI::printFile(filelist.filename());
     ScreenHandler.GotoScreen(DGUSLCD_SCREEN_STATUS);
+  }
+
+  void DGUSScreenVariableHandler::DGUSLCD_SD_ResumePauseAbort(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
+    DGUS_DEBUG(true);
+    if (!ExtUI::isPrintingFromMedia()) return; // avoid race condition when user stays in this menu and printer finishes.
+    uint16_t value = swap16(*(uint16_t*)ptr_to_new_value);
+    switch(value) {
+    case 0:  // Resume
+      DGUS_ECHOLN("RESUME");
+      if (ExtUI::isPrintingFromMediaPaused()) ExtUI::resumePrint();
+      break;
+
+    case 1:  // Pause
+      DGUS_ECHOLN("PAUSE");
+      if (!ExtUI::isPrintingFromMediaPaused()) ExtUI::pausePrint();
+      break;
+
+    case 2:  // Abort
+      DGUS_ECHOLN("ABORT");
+      ScreenHandler.HandleUserConfirmationPopUp(VP_SD_AbortPrintConfirmed, nullptr, PSTR("Abort printing"), filelist.filename(), PSTR("?"), true, true, false, true);
+      break;
+
+    default:
+      return;
+    }
+
+  }
+
+  void DGUSScreenVariableHandler::DGUSLCD_SD_ReallyAbort(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
+    DGUS_ECHOLN("ABORT_CONFIRMED");
+    ExtUI::stopPrint();
+    GotoScreen(DGUSLCD_SCREEN_MAIN);
   }
 
   void DGUSScreenVariableHandler::DGUSLCD_SD_SendFilename(DGUS_VP_Variable& ref_to_this) {
@@ -357,7 +393,7 @@ void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable 
 
   void DGUSScreenVariableHandler::SDCardRemoved() {
     if(current_screen == DGUSLCD_SCREEN_SDFILELIST ||
-       current_screen == DGUSLCD_SCREEN_CONFIRM ||
+       (current_screen == DGUSLCD_SCREEN_CONFIRM && (ConfirmVP == VP_SD_AbortPrintConfirmed || ConfirmVP == VP_SD_FileSelectConfirm)) ||
        current_screen == DGUSLCD_SCREEN_SDPRINTMANIPULATION
     ) {
       ScreenHandler.GotoScreen(DGUSLCD_SCREEN_MAIN);
@@ -366,8 +402,8 @@ void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable 
 
   void DGUSScreenVariableHandler::SDCardError() {
     DGUSScreenVariableHandler::SDCardRemoved();
-    ScreenHandler.sendinfoscreen("NOTICE", "", "SD card error", "");
-    ScreenHandler.SetupConfirmAction(ExtUI::setUserConfirmed);
+    ScreenHandler.sendinfoscreen(PSTR("NOTICE"), nullptr, PSTR("SD card error"), nullptr, true, true, true, true);
+    ScreenHandler.SetupConfirmAction(nullptr);
     ScreenHandler.GotoScreen(DGUSLCD_SCREEN_POPUP);
   }
 
@@ -683,11 +719,11 @@ void DGUSDisplay::InitDisplay() {
 
 void DGUSDisplay::WriteVariable(uint16_t adr, const void* values, uint8_t valueslen, bool isstr) {
   const char* myvalues = static_cast<const char*>(values);
-  if (!myvalues) myvalues = "";
-  bool strend = false;
+  bool strend = (myvalues) ? false : true;
   WriteHeader(adr, DGUS_CMD_WRITEVAR, valueslen);
   while (valueslen--) {
-    auto x = *myvalues++;
+    char x;
+    if (!strend) x = *myvalues++;
     if ((isstr && !x) || strend) {
       strend = true;
       x = ' ';
@@ -698,11 +734,11 @@ void DGUSDisplay::WriteVariable(uint16_t adr, const void* values, uint8_t values
 
 void DGUSDisplay::WriteVariablePGM(uint16_t adr, const void* values, uint8_t valueslen, bool isstr) {
   const char* myvalues = static_cast<const char*>(values);
-  if (!myvalues) myvalues = PSTR("");
-  bool strend = false;
+  bool strend = (myvalues) ? false : true;
   WriteHeader(adr, DGUS_CMD_WRITEVAR, valueslen);
   while (valueslen--) {
-    uint8_t x = pgm_read_byte(myvalues++);
+    char x;
+    if (!strend) x = pgm_read_byte(myvalues++);
     if ((isstr && !x) || strend) {
       strend = true;
       x = ' ';

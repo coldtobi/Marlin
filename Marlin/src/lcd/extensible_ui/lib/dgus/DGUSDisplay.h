@@ -110,11 +110,16 @@ public:
 
   static bool loop();
 
-  static void sendinfoscreenPGM(const char* line1, const char* line2, const char* line3, const char* line4);
-  static void sendinfoscreen(const char* line1, const char* line2, const char* line3, const char* line4);
+  /// Send all 4 strings that are displayed on the infoscreen, confirmation screen and kill screen
+  /// The bools specifing whether the strings are in RAM or FLASH.
+  static void sendinfoscreen(const char* line1, const char* line2, const char* line3, const char* line4, bool l1inflash, bool l2inflash, bool l3inflash, bool liinflash);
+
+  static void HandleUserConfirmationPopUp(uint16_t ConfirmVP, const char* line1, const char* line2, const char* line3, const char* line4, bool l1inflash, bool l2inflash, bool l3inflash, bool liinflash);
+
   /// "M117" Message -- msg is a RAM ptr.
   static void setstatusmessage(const char* msg);
-
+  /// The same for messages from Flash
+  static void setstatusmessagePGM(PGM_P const msg);
   // Callback for VP "Display wants to change screen on idle printer"
   static void ScreenChangeHookIfIdle(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
   // Callback for VP "Screen has been changed"
@@ -137,9 +142,12 @@ public:
     static void DGUSLCD_SD_FileSelected(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
     /// start print after confirmation received.
     static void DGUSLCD_SD_StartPrint(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
+    /// User hit the pause, resume or abort button.
+    static void DGUSLCD_SD_ResumePauseAbort(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
+    /// User confirmed the abort action
+    static void DGUSLCD_SD_ReallyAbort(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
     /// Send a single filename to the display.
     static void DGUSLCD_SD_SendFilename(DGUS_VP_Variable &ref_to_this);
-
     /// Marlin informed us that a new SD has been inserted.
     static void SDCardInserted();
     /// Marlin informed us that the SD Card has been removed();

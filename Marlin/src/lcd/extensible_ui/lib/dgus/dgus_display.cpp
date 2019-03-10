@@ -43,7 +43,7 @@ void onStartup() {
  }
 
  void onPrinterKilled(const char* msg) {
-   ScreenHandler.sendinfoscreenPGM(PSTR(MSG_HALTED), msg, PSTR(""), PSTR(MSG_PLEASE_RESET));
+   ScreenHandler.sendinfoscreen(PSTR(MSG_HALTED), msg, PSTR(""), PSTR(MSG_PLEASE_RESET), true, true, true, true);
    ScreenHandler.GotoScreen(DGUSLCD_SCREEN_KILL);
    while(!ScreenHandler.loop());  // Wait if there is something still to be sent to the display.
  }
@@ -68,7 +68,7 @@ void onStartup() {
 
   void onUserConfirmRequired(const char *msg) {
     if (msg) {
-      ScreenHandler.sendinfoscreen("Please confirm.", "", msg, "");
+      ScreenHandler.sendinfoscreen(PSTR("Please confirm."), nullptr, msg, nullptr, true, true, false, true);
       ScreenHandler.SetupConfirmAction(ExtUI::setUserConfirmed);
       ScreenHandler.GotoScreen(DGUSLCD_SCREEN_POPUP);
     } else
