@@ -177,6 +177,7 @@ public:
   static void DGUSLCD_SendStringToDisplay(DGUS_VP_Variable &ref_to_this);
   static void DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable &ref_to_this);
   static void DGUSLCD_SendPercentageToDisplay(DGUS_VP_Variable &ref_to_this);
+  static void DGUSLCD_SendPrintTimeToDisplay(DGUS_VP_Variable &ref_to_this);
 
   /// Send a value from 0..100 to a variable with a range from 0..255
   static void DGUSLCD_PercentageToUint8(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);

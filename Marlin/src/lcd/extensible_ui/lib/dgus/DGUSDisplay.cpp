@@ -38,6 +38,8 @@
 #include "../../../../gcode/queue.h"
 #include "../../../../module/planner.h"
 #include "../../../../sd/cardreader.h"
+#include "../../../../libs/duration_t.h"
+#include "../../../../module/printcounter.h"
 
 // Preamble... 2 Bytes, usually 0x5A 0xA5, but configurable
 constexpr uint8_t DGUS_HEADER1 = 0x5A;
@@ -225,6 +227,30 @@ void DGUSScreenVariableHandler::DGUSLCD_SendPercentageToDisplay(DGUS_VP_Variable
   }
 }
 
+// Send the current print time to the display.
+// It is using a hex display for that: It expects BSD coded data in the format xxyyzz
+void DGUSScreenVariableHandler::DGUSLCD_SendPrintTimeToDisplay(DGUS_VP_Variable &ref_to_this) {
+  duration_t elapsed = print_job_timer.duration();
+
+  uint8_t days  = elapsed.day();
+  uint8_t hours = elapsed.hour() % 24;
+  uint8_t minutes = elapsed.minute() % 60;
+  uint8_t seconds = elapsed.second() % 60;
+
+  char buf[14]; // that two extra bytes saves us some flash...
+  char *p = buf;
+
+  if (days) { *p++ = days/10 + '0'; *p++ = days%10 + '0'; *p++ = 'd'; }
+  *p++ = hours/10 + '0'; *p++ = hours%10 + '0'; *p++ = 'h';
+  *p++ = minutes/10 + '0'; *p++ = minutes%10 + '0'; *p++ = 'm';
+  *p++ = seconds/10 + '0'; *p++ = seconds%10 + '0'; *p++ = 's';
+  *p=0;
+
+  dgusdisplay.WriteVariable(VP_PrintTime, buf, ref_to_this.size, true);
+}
+
+
+
 // Send an uint8_t between 0 and 100 to a variable scale to 0..255
 void DGUSScreenVariableHandler::DGUSLCD_PercentageToUint8(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
   if (ref_to_this.memadr) {
@@ -277,12 +303,9 @@ void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable 
        setstatusmessagePGM(PSTR("Aborting..."));
        return;
     }
-
-
   }
 
   void DGUSScreenVariableHandler::DGUSLCD_SD_ScrollFilelist(DGUS_VP_Variable& ref_to_this, void *ptr_to_new_value) {
-    DGUS_DEBUG(true); DGUS_ECHOLN(__FUNCTION__);
     auto old_top = top_file;
     int16_t scroll = (int16_t)swap16(*(uint16_t*)ptr_to_new_value);
     if (scroll == 0) {
@@ -311,7 +334,6 @@ void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable 
   }
 
   void DGUSScreenVariableHandler::DGUSLCD_SD_FileSelected(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-    DGUS_DEBUG(true); DGUS_ECHOLN(__FUNCTION__);
     uint16_t touched_nr = (int16_t)swap16(*(uint16_t*)ptr_to_new_value) + top_file;
     if (touched_nr > filelist.count()) return;
     if (!filelist.seek(touched_nr)) return;
@@ -328,29 +350,24 @@ void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable 
   }
 
   void DGUSScreenVariableHandler::DGUSLCD_SD_StartPrint(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-    DGUS_DEBUG(true); DGUS_ECHOLN(__FUNCTION__);
     if(!filelist.seek(file_to_print)) return;
     ExtUI::printFile(filelist.filename());
     ScreenHandler.GotoScreen(DGUSLCD_SCREEN_STATUS);
   }
 
   void DGUSScreenVariableHandler::DGUSLCD_SD_ResumePauseAbort(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-    DGUS_DEBUG(true);
     if (!ExtUI::isPrintingFromMedia()) return; // avoid race condition when user stays in this menu and printer finishes.
     uint16_t value = swap16(*(uint16_t*)ptr_to_new_value);
     switch(value) {
     case 0:  // Resume
-      DGUS_ECHOLN("RESUME");
       if (ExtUI::isPrintingFromMediaPaused()) ExtUI::resumePrint();
       break;
 
     case 1:  // Pause
-      DGUS_ECHOLN("PAUSE");
       if (!ExtUI::isPrintingFromMediaPaused()) ExtUI::pausePrint();
       break;
 
     case 2:  // Abort
-      DGUS_ECHOLN("ABORT");
       ScreenHandler.HandleUserConfirmationPopUp(VP_SD_AbortPrintConfirmed, nullptr, PSTR("Abort printing"), filelist.filename(), PSTR("?"), true, true, false, true);
       break;
 
@@ -361,23 +378,17 @@ void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable 
   }
 
   void DGUSScreenVariableHandler::DGUSLCD_SD_ReallyAbort(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-    DGUS_ECHOLN("ABORT_CONFIRMED");
     ExtUI::stopPrint();
     GotoScreen(DGUSLCD_SCREEN_MAIN);
   }
 
   void DGUSScreenVariableHandler::DGUSLCD_SD_SendFilename(DGUS_VP_Variable& ref_to_this) {
     uint16_t target_line = (ref_to_this.VP - VP_SD_FileName0) / VP_SD_FileName_LEN;
-    //DGUS_DEBUG(true); DGUS_ECHOLNPAIR("DGUSLCD_SD_SendFilename",target_line);
     if (target_line > DGUS_SD_FILESPERSCREEN) return;
     char tmpfilename[VP_SD_FileName_LEN+1] = "";
     ref_to_this.memadr = (void*)tmpfilename;
     if (filelist.seek(top_file + target_line)) {
       snprintf_P(tmpfilename, VP_SD_FileName_LEN, PSTR("%s%c"), filelist.filename(), filelist.isDir() ? '/' : 0);
-      DGUS_DEBUG(true);
-      DGUS_ECHOPAIR("count: ", filelist.count());
-      DGUS_ECHOPAIR(" FN(", top_file + target_line);
-      DGUS_ECHOLNPAIR("): ",tmpfilename);
     }
     DGUSLCD_SendStringToDisplay(ref_to_this);
   }
@@ -394,10 +405,7 @@ void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable 
   void DGUSScreenVariableHandler::SDCardRemoved() {
     if(current_screen == DGUSLCD_SCREEN_SDFILELIST ||
        (current_screen == DGUSLCD_SCREEN_CONFIRM && (ConfirmVP == VP_SD_AbortPrintConfirmed || ConfirmVP == VP_SD_FileSelectConfirm)) ||
-       current_screen == DGUSLCD_SCREEN_SDPRINTMANIPULATION
-    ) {
-      ScreenHandler.GotoScreen(DGUSLCD_SCREEN_MAIN);
-    }
+       current_screen == DGUSLCD_SCREEN_SDPRINTMANIPULATION ) ScreenHandler.GotoScreen(DGUSLCD_SCREEN_MAIN);
   }
 
   void DGUSScreenVariableHandler::SDCardError() {
@@ -410,7 +418,6 @@ void DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM(DGUS_VP_Variable 
 #endif // SDSUPPORT
 
 void DGUSScreenVariableHandler::ScreenConfirmedOK(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-  DGUS_DEBUG(true); DGUS_ECHOLN(__FUNCTION__);
   DGUS_VP_Variable ramcopy;
   if (!populate_VPVar(ConfirmVP, &ramcopy)) return;
   if (ramcopy.set_by_display_handler) ramcopy.set_by_display_handler(ramcopy, ptr_to_new_value);
@@ -430,11 +437,8 @@ const DGUS_VP_Variable* DGUSLCD_FindVPVar(uint16_t vp) {
   const DGUS_VP_Variable *ret = ListOfVP;
   do {
     uint16_t vpcheck = pgm_read_word(&(ret->VP));
-    //DGUS_ECHOPAIR(" vpcheck=", vpcheck);
     if (vpcheck == 0) break;
     if (vpcheck == vp) {
-      //DGUS_ECHOLNPAIR(" FOUND ", vp);
-      //DGUS_ECHOLNPAIR(" @", (uint16_t) ret);
       return ret;
     }
     ++ret;
@@ -461,13 +465,11 @@ void DGUSScreenVariableHandler::ScreenChangeHook(DGUS_VP_Variable &ref_to_this, 
 
   if (target == DGUSLCD_SCREEN_POPUP) {
     // special handling for popup is to return to previous menu
-    DGUS_ECHOLNPAIR("popup return to ", past_screens[0]);
     if (current_screen == DGUSLCD_SCREEN_POPUP && confirmaction_cb) confirmaction_cb();
     PopToOldScreen();
     return;
   }
 
-  DGUS_ECHOLNPAIR("requesting new screen ", target);
   UpdateNewScreen(target);
 
   #ifdef DEBUG_DGUSLCD
@@ -694,20 +696,15 @@ void DGUSScreenVariableHandler::UpdateScreenVPData() {
 }
 
 void DGUSDisplay::loop() {
-  // protection against recursion… ProcessRx() might call indirectly idle() when trying to injecting gcode commands
-  // when the queue is full.
+  // protection against recursion… ProcessRx() might call indirectly idle() when trying to injecting gcode commands if the queue is full.
   if (!no_reentrance) {
     no_reentrance = true;
     ProcessRx();
     no_reentrance = false;
-  } else {
-    //DGUS_DEBUG(true)
-    //DGUS_ECHOLN("dgus-loop() BLOCKED");
   }
 }
 
 void DGUSDisplay::InitDisplay() {
-  DGUS_ECHOLNPGM("InitDisplay");
   RequestScreen(
     #if ENABLED(SHOW_BOOTSCREEN)
       DGUSLCD_SCREEN_BOOT
@@ -753,7 +750,6 @@ void DGUSScreenVariableHandler::GotoScreen(DGUSLCD_Screens screen) {
 }
 
 bool DGUSScreenVariableHandler::loop() {
-
   dgusdisplay.loop();
 
   const millis_t ms = millis();
@@ -766,7 +762,7 @@ bool DGUSScreenVariableHandler::loop() {
 
   #if ENABLED(SHOW_BOOTSCREEN)
     static bool booted = false;
-    if (!booted && ms >= BOOTSCREEN_TIMEOUT) {
+    if (!booted && ELAPSED(ms, BOOTSCREEN_TIMEOUT)) {
       booted = true;
       GotoScreen(DGUSLCD_SCREEN_MAIN);
     }
@@ -844,8 +840,8 @@ void DGUSDisplay::ProcessRx() {
         | Example 5A A5 06 83 20 01 01 78 01 ……
         |          / /  |  |   \ /   |  \     \
         |        Header |  |    |    |   \_____\_ DATA (Words!)
-        | DatagramLen  /       VPAdr |
-        |       Command              DataLen (in Words) */
+        |     DatagramLen  /  VPAdr  |
+        |           Command          DataLen (in Words) */
         if (command == DGUS_CMD_READVAR) {
           const uint16_t vp = tmp[0] << 8 | tmp[1];
           const uint8_t dlen = tmp[2] << 1;  // Convert to Bytes. (Display works with words)
@@ -855,7 +851,6 @@ void DGUSDisplay::ProcessRx() {
             if (!(dlen == ramcopy.size || (dlen == 2 && ramcopy.size == 1)))
               DGUS_ECHOLNPGM("SIZE MISMATCH");
             else if (ramcopy.set_by_display_handler) {
-              //DGUS_ECHOLNPAIR("CALLING CB FOR ", vp);
               ramcopy.set_by_display_handler(ramcopy, &tmp[3]);
             }
             else

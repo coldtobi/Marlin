@@ -78,6 +78,19 @@ const uint16_t VPList_Status[] PROGMEM = {
   0x0000
 };
 
+const uint16_t VPList_Status2[] PROGMEM = {
+  /* VP_M117, for completeness, but it cannot be auto-uploaded */
+#if HOTENDS >= 1
+    VP_Flowrate_E1,
+#endif
+#if HOTENDS >= 2
+    VP_Flowrate_E2,
+#endif
+  VP_PrintProgress_Percentage,
+  VP_PrintTime,
+  0x0000
+};
+
 const uint16_t VPList_ManualMove[] PROGMEM = {
   VP_XPos, VP_YPos, VP_ZPos,
   0x0000
@@ -110,6 +123,7 @@ const struct VPMapping VPMap[] PROGMEM = {
   { DGUSLCD_SCREEN_MAIN, VPList_Main },
   { DGUSLCD_SCREEN_TEMPERATURE, VPList_Temp },
   { DGUSLCD_SCREEN_STATUS, VPList_Status },
+  { DGUSLCD_SCREEN_STATUS2, VPList_Status2 },
   { DGUSLCD_SCREEN_MANUALMOVE, VPList_ManualMove },
   { DGUSLCD_SCREEN_FANANDFEEDRATE, VPList_FanAndFeedrate },
   { DGUSLCD_SCREEN_FLOWRATES, VPList_SD_FlowRates },
@@ -179,6 +193,9 @@ const struct DGUS_VP_Variable ListOfVP[] PROGMEM = {
 
   // Print Progress.
   VPHELPER(VP_PrintProgress_Percentage, &MarlinUI::progress_bar_percent, nullptr, DGUSScreenVariableHandler::DGUSLCD_SendPercentageToDisplay ),
+
+  // Print Time
+  VPHELPER_STR(VP_PrintTime, nullptr, VP_PrintTime_LEN, nullptr, DGUSScreenVariableHandler::DGUSLCD_SendPrintTimeToDisplay ),
 
   // SDCard File listing.
   #if ENABLED(SDSUPPORT)

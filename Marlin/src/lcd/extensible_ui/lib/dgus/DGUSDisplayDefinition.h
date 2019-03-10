@@ -43,6 +43,7 @@ enum DGUSLCD_Screens : uint8_t {
   DGUSLCD_SCREEN_MAIN = 10,
   DGUSLCD_SCREEN_TEMPERATURE = 20,
   DGUSLCD_SCREEN_STATUS = 30,
+  DGUSLCD_SCREEN_STATUS2 = 32,
   DGUSLCD_SCREEN_MANUALMOVE = 40,
   DGUSLCD_SCREEN_FANANDFEEDRATE = 44,
   DGUSLCD_SCREEN_FLOWRATES = 46,
@@ -122,7 +123,7 @@ constexpr uint16_t VP_T_E1_Is = 0x3060;  // 4 Byte Integer
 constexpr uint16_t VP_T_E1_Set = 0x3062; // 2 Byte Integer
 constexpr uint16_t VP_T_E2_Is = 0x3064;  // 4 Byte Integer
 
-// reserved to support up to 6 Extruders later.
+// reserved to support up to 6 Extruders:
 //constexpr uint16_t VP_T_E2_Set = 0x3066; // 2 Byte Integer
 //constexpr uint16_t VP_T_E3_Is = 0x3068;  // 4 Byte Integer
 //constexpr uint16_t VP_T_E3_Set = 0x306A; // 2 Byte Integer
@@ -141,7 +142,7 @@ constexpr uint16_t VP_T_Bed_Set = 0x3082; // 2 Byte Integer
 constexpr uint16_t VP_Flowrate_E1 = 0x3090; // 2 Byte Integer
 constexpr uint16_t VP_Flowrate_E2 = 0x3092; // 2 Byte Integer
 
-// reserved
+// reserved for up to 6 Extruders:
 //constexpr uint16_t VP_Flowrate_E3 = 0x3094;
 //constexpr uint16_t VP_Flowrate_E4 = 0x3096;
 //constexpr uint16_t VP_Flowrate_E5 = 0x3098;
@@ -152,7 +153,8 @@ constexpr uint16_t VP_Fan_Percentage = 0x3100;  // 2 Byte Integer (0..100)
 constexpr uint16_t VP_Feedrate_Percentage = 0x3102; // 2 Byte Integer (0..100)
 constexpr uint16_t VP_PrintProgress_Percentage = 0x3104; // 2 Byte Integer (0..100)
 
-constexpr uint16_t VP_PrintTime = 0x3106; // 4 Bytes BSD coded. hh:mm
+constexpr uint16_t VP_PrintTime = 0x3106;
+constexpr uint16_t VP_PrintTime_LEN = 10;
 
 // Actual Position
 constexpr uint16_t VP_XPos = 0x3110;  // 4 Byte Fixed point number; format xxx.yy
@@ -170,7 +172,7 @@ constexpr uint16_t VP_SD_FileName4 = 0x3280;
 
 // SPs for certain variables...
 // located at 0x5000 and up
-// Not used yet (list is also incommplete)
+// Not used yet!
 // This can be used e.g to make controls / data display invisible
 constexpr uint16_t SP_T_E1_Is = 0x5000;
 constexpr uint16_t SP_T_E1_Set = 0x5010;
