@@ -170,7 +170,7 @@ public:
   static void PopToOldScreen();
 
   // Make the display display the screen and update all VPs in it.
-  static void GotoScreen(DGUSLCD_Screens screen);
+  static void GotoScreen(DGUSLCD_Screens screen, bool ispopup = false);
 
   static void UpdateScreenVPData();
 

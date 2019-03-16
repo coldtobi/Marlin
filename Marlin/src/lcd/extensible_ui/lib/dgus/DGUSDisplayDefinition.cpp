@@ -111,7 +111,6 @@ const uint16_t VPList_SD_FlowRates[] PROGMEM = {
     0x0000
 };
 
-
 const uint16_t VPList_SDFileList[] PROGMEM = {
     VP_SD_FileName0, VP_SD_FileName1, VP_SD_FileName2, VP_SD_FileName3, VP_SD_FileName4,
     0x0000
@@ -121,7 +120,6 @@ const uint16_t VPList_SD_PrintManipulation[] PROGMEM = {
     VP_PrintProgress_Percentage, VP_PrintTime,
     0x0000
 };
-
 
 const struct VPMapping VPMap[] PROGMEM = {
   { DGUSLCD_SCREEN_BOOT, VPList_Boot },

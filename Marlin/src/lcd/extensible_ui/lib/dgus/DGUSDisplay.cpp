@@ -664,7 +664,7 @@ void DGUSScreenVariableHandler::UpdateNewScreen(DGUSLCD_Screens newscreen, bool 
 
 void DGUSScreenVariableHandler::PopToOldScreen() {
   DGUS_ECHOLNPAIR("PopToOldScreen s=", past_screens[0]);
-  GotoScreen(past_screens[0]);
+  GotoScreen(past_screens[0], true);
   memmove(&past_screens[0], &past_screens[1], sizeof(past_screens) - 1);
   past_screens[sizeof(past_screens) - 1] = DGUSLCD_SCREEN_MAIN;
 }
@@ -770,9 +770,9 @@ void DGUSDisplay::WriteVariablePGM(uint16_t adr, const void* values, uint8_t val
   }
 }
 
-void DGUSScreenVariableHandler::GotoScreen(DGUSLCD_Screens screen) {
+void DGUSScreenVariableHandler::GotoScreen(DGUSLCD_Screens screen, bool ispopup) {
   dgusdisplay.RequestScreen(screen);
-  UpdateNewScreen(screen);
+  UpdateNewScreen(screen, ispopup);
 }
 
 bool DGUSScreenVariableHandler::loop() {
