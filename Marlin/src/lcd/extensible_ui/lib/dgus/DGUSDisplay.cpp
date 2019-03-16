@@ -622,12 +622,12 @@ void DGUSScreenVariableHandler::HandleManualMove(DGUS_VP_Variable &ref_to_this, 
     int16_t value = movevalue / 100;
     if (movevalue < 0) { value = -value; sign[0] = '-'; }
     int16_t fraction = ((movevalue > 0) ? movevalue : -movevalue) % 100;
-    snprintf_P(buf, 32, PSTR("G1 %c%s%d.%02d F%d"), axiscode, sign, value, fraction, speed);
+    snprintf_P(buf, 32, PSTR("G0 %c%s%d.%02d F%d"), axiscode, sign, value, fraction, speed);
     //DGUS_ECHOPAIR(" ", buf);
     while (!enqueue_and_echo_command(buf)) idle();
     //DGUS_ECHOLN(" ✓ ");
     if (backup_speed != speed) {
-      snprintf_P(buf, 32, PSTR("G1 F%d"), backup_speed);
+      snprintf_P(buf, 32, PSTR("G0 F%d"), backup_speed);
       while (!enqueue_and_echo_command(buf)) idle();
       //DGUS_ECHOPAIR(" ", buf);
     }
