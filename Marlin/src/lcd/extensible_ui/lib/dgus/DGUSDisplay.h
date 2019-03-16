@@ -132,6 +132,8 @@ public:
   static void HandleFlowRateChanged(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
   // Hook for manual move.
   static void HandleManualMove(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
+  // Hook for manual extrude.
+  static void HandleManualExtrude(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value);
 
   #if ENABLED(SDSUPPORT)
     // Callcack for VP "Display wants to change screen when there is a SD card"

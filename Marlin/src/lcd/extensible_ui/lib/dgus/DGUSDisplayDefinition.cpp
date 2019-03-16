@@ -96,6 +96,11 @@ const uint16_t VPList_ManualMove[] PROGMEM = {
   0x0000
 };
 
+const uint16_t VPList_ManualExtrude[] PROGMEM = {
+  VP_EPos,
+  0x0000
+};
+
 const uint16_t VPList_FanAndFeedrate[] PROGMEM = {
   VP_Feedrate_Percentage, VP_Fan_Percentage,
   0x0000
@@ -125,6 +130,7 @@ const struct VPMapping VPMap[] PROGMEM = {
   { DGUSLCD_SCREEN_STATUS, VPList_Status },
   { DGUSLCD_SCREEN_STATUS2, VPList_Status2 },
   { DGUSLCD_SCREEN_MANUALMOVE, VPList_ManualMove },
+  { DGUSLCD_SCREEN_MANUALEXTRUDE, VPList_ManualExtrude },
   { DGUSLCD_SCREEN_FANANDFEEDRATE, VPList_FanAndFeedrate },
   { DGUSLCD_SCREEN_FLOWRATES, VPList_SD_FlowRates },
   { DGUSLCD_SCREEN_SDPRINTMANIPULATION, VPList_SD_PrintManipulation },
@@ -164,13 +170,16 @@ const struct DGUS_VP_Variable ListOfVP[] PROGMEM = {
     VPHELPER(VP_T_E1_Is, &thermalManager.temp_hotend[0].current, nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<0>),
     VPHELPER(VP_T_E1_Set, &thermalManager.temp_hotend[0].target, DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
     VPHELPER(VP_Flowrate_E1, nullptr, DGUSScreenVariableHandler::HandleFlowRateChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
-  #endif
-  #if HOTENDS > 2
+    VPHELPER(VP_EPos, &destination[3], nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<2>),
+    VPHELPER(VP_MOVE_E1, nullptr, &DGUSScreenVariableHandler::HandleManualExtrude, nullptr),
+    #endif
+  #if HOTENDS >= 2
     VPHELPER(VP_T_E2_I, &thermalManager.temp_hotend[1].current, nullptr, DGUSLCD_SendFloatAsLongValueToDisplay<0>),
     VPHELPER(VP_T_E2_S, &thermalManager.temp_hotend[1].target, DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
     VPHELPER(VP_Flowrate_E2, nullptr, DGUSScreenVariableHandler::HandleFlowRateChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
+    VPHELPER(VP_MOVE_E2, nullptr, &DGUSScreenVariableHandler::HandleManualExtrude, nullptr),
   #endif
-  #if HOTENDS > 3
+  #if HOTENDS >= 3
     #error More than 2 Hotends currently not implemented on the Display UI design.
   #endif
   #if HAS_HEATED_BED

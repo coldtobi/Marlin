@@ -538,6 +538,32 @@ void DGUSScreenVariableHandler::HandleFlowRateChanged(DGUS_VP_Variable &ref_to_t
   ScreenHandler.skipVP = ref_to_this.VP; // don't overwrite value the next update time as the display might autoincrement in parallel
 }
 
+void DGUSScreenVariableHandler::HandleManualExtrude(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
+  DGUS_ECHOLNPGM("HandleManualMove");
+
+  int16_t movevalue = swap16(*(uint16_t*) ptr_to_new_value);
+  float target = movevalue * 0.01f;
+  ExtUI::extruder_t target_extruder;
+
+  switch (ref_to_this.VP) {
+#if HOTENDS >=1
+    case VP_MOVE_E1:
+      target_extruder = ExtUI::extruder_t::E0;
+      break;
+#endif
+#if HOTENDS >=2
+    case VP_MOVE_E2:
+      target_extruder = ExtUI::extruder_t::E1;
+      break
+#endif
+    default: return;
+  }
+
+  target += ExtUI::getAxisPosition_mm(target_extruder);
+  ExtUI::setAxisPosition_mm(target, target_extruder);
+  skipVP = ref_to_this.VP;
+}
+
 void DGUSScreenVariableHandler::HandleManualMove(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
   DGUS_ECHOLNPGM("HandleManualMove");
 

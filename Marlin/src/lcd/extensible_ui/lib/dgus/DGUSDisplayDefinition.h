@@ -45,6 +45,7 @@ enum DGUSLCD_Screens : uint8_t {
   DGUSLCD_SCREEN_STATUS = 30,
   DGUSLCD_SCREEN_STATUS2 = 32,
   DGUSLCD_SCREEN_MANUALMOVE = 40,
+  DGUSLCD_SCREEN_MANUALEXTRUDE=42,
   DGUSLCD_SCREEN_FANANDFEEDRATE = 44,
   DGUSLCD_SCREEN_FLOWRATES = 46,
   DGUSLCD_SCREEN_SDFILELIST = 50,
@@ -106,9 +107,15 @@ constexpr uint16_t VP_SD_AbortPrintConfirmed = 0x2028; // Abort print confirmati
 // A word about the coding: The VP will be per axis and the return code will be an signed 16 bit value in 0.01 mm resolution, telling us
 // the relative travel amount t he user wants to do. So eg. if the display sends us VP=2100 with value 100, the user wants us to move X by +1 mm.
 constexpr uint16_t VP_MOVE_X = 0x2100;
-constexpr uint16_t VP_MOVE_Y = 0x2110;
-constexpr uint16_t VP_MOVE_Z = 0x2120;
-constexpr uint16_t VP_HOME_ALL = 0x2130;
+constexpr uint16_t VP_MOVE_Y = 0x2102;
+constexpr uint16_t VP_MOVE_Z = 0x2104;
+constexpr uint16_t VP_MOVE_E1 = 0x2110;
+constexpr uint16_t VP_MOVE_E2 = 0x2112;
+//constexpr uint16_t VP_MOVE_E3 = 0x2114;
+//constexpr uint16_t VP_MOVE_E4 = 0x2116;
+//constexpr uint16_t VP_MOVE_E5 = 0x2118;
+//constexpr uint16_t VP_MOVE_E6 = 0x211A;
+constexpr uint16_t VP_HOME_ALL = 0x2120;
 
 // Firmware version on the boot screen.
 constexpr uint16_t VP_MARLIN_VERSION = 0x3000;
@@ -148,7 +155,6 @@ constexpr uint16_t VP_Flowrate_E2 = 0x3092; // 2 Byte Integer
 //constexpr uint16_t VP_Flowrate_E5 = 0x3098;
 //constexpr uint16_t VP_Flowrate_E6 = 0x309A;
 
-
 constexpr uint16_t VP_Fan_Percentage = 0x3100;  // 2 Byte Integer (0..100)
 constexpr uint16_t VP_Feedrate_Percentage = 0x3102; // 2 Byte Integer (0..100)
 constexpr uint16_t VP_PrintProgress_Percentage = 0x3104; // 2 Byte Integer (0..100)
@@ -160,6 +166,8 @@ constexpr uint16_t VP_PrintTime_LEN = 10;
 constexpr uint16_t VP_XPos = 0x3110;  // 4 Byte Fixed point number; format xxx.yy
 constexpr uint16_t VP_YPos = 0x3112;  // 4 Byte Fixed point number; format xxx.yy
 constexpr uint16_t VP_ZPos = 0x3114;  // 4 Byte Fixed point number; format xxx.yy
+
+constexpr uint16_t VP_EPos = 0x3120;  // 4 Byte Fixed point number; format xxx.yy
 
 // SDCard File Listing
 constexpr uint16_t VP_SD_FileName_LEN = 32; // LEN is shared for all entries.
