@@ -539,7 +539,7 @@ void DGUSScreenVariableHandler::HandleFlowRateChanged(DGUS_VP_Variable &ref_to_t
 }
 
 void DGUSScreenVariableHandler::HandleManualExtrude(DGUS_VP_Variable &ref_to_this, void *ptr_to_new_value) {
-  DGUS_ECHOLNPGM("HandleManualMove");
+  DGUS_ECHOLNPGM("HandleManualExtrude");
 
   int16_t movevalue = swap16(*(uint16_t*) ptr_to_new_value);
   float target = movevalue * 0.01f;
@@ -568,23 +568,23 @@ void DGUSScreenVariableHandler::HandleManualMove(DGUS_VP_Variable &ref_to_this, 
   DGUS_ECHOLNPGM("HandleManualMove");
 
   int16_t movevalue = swap16(*(uint16_t*) ptr_to_new_value);
+  float movef = movevalue / 100.0;
+  ExtUI::axis_t axis;
   char axiscode;
-  unsigned int speed = 1500;  //FIXME: get default feedrate for manual moves, dont hardcode.
 
   switch (ref_to_this.VP) {
     case VP_MOVE_X:
-      axiscode = 'X';
+      axiscode = 'X'; axis = ExtUI::axis_t::X;
       if (!ExtUI::canMove(ExtUI::axis_t::X)) goto cannotmove;
       break;
 
     case VP_MOVE_Y:
-      axiscode = 'Y';
+      axiscode = 'Y'; axis = ExtUI::axis_t::Y;
       if (!ExtUI::canMove(ExtUI::axis_t::Y)) goto cannotmove;
       break;
 
     case VP_MOVE_Z:
-      axiscode = 'Z';
-      speed = 300; // default to 5mm/s
+      axiscode = 'Z'; axis = ExtUI::axis_t::Z;
       if (!ExtUI::canMove(ExtUI::axis_t::Z)) goto cannotmove;
       break;
 
@@ -596,7 +596,7 @@ void DGUSScreenVariableHandler::HandleManualMove(DGUS_VP_Variable &ref_to_this, 
     default: return;
   }
 
-  if (!movevalue) {
+  if (0 == movevalue) {
     // homing
     DGUS_ECHOPAIR(" homing ", axiscode);
     char buf[6] = "G28 X";
@@ -607,38 +607,10 @@ void DGUSScreenVariableHandler::HandleManualMove(DGUS_VP_Variable &ref_to_this, 
     ScreenHandler.ForceCompleteUpdate();
     return;
   }
-  else {
-    //movement
-    DGUS_ECHOPAIR(" move ", axiscode);
-    bool old_relative_mode = relative_mode;
-    if (!relative_mode) {
-      //DGUS_ECHO(" G91");
-      while (!enqueue_and_echo_command("G91")) idle();
-      //DGUS_ECHOPGM(" ✓ ");
-    }
-    char buf[32];  // G1 X9999.99 F12345
-    unsigned int backup_speed = MMS_TO_MMM(feedrate_mm_s);
-    char sign[]="\0";
-    int16_t value = movevalue / 100;
-    if (movevalue < 0) { value = -value; sign[0] = '-'; }
-    int16_t fraction = ((movevalue > 0) ? movevalue : -movevalue) % 100;
-    snprintf_P(buf, 32, PSTR("G0 %c%s%d.%02d F%d"), axiscode, sign, value, fraction, speed);
-    //DGUS_ECHOPAIR(" ", buf);
-    while (!enqueue_and_echo_command(buf)) idle();
-    //DGUS_ECHOLN(" ✓ ");
-    if (backup_speed != speed) {
-      snprintf_P(buf, 32, PSTR("G0 F%d"), backup_speed);
-      while (!enqueue_and_echo_command(buf)) idle();
-      //DGUS_ECHOPAIR(" ", buf);
-    }
-    //while (!enqueue_and_echo_command(buf)) idle();
-    //DGUS_ECHOLN(" ✓ ");
-    if (!old_relative_mode) {
-      //DGUS_ECHO("G90");
-      while (!enqueue_and_echo_command("G90")) idle();
-      //DGUS_ECHO(" ✓ ");
-    }
-  }
+
+  DGUS_ECHOPAIR(" move ", axiscode);
+  movef += ExtUI::getAxisPosition_mm(axis);
+  ExtUI::setAxisPosition_mm(movef, axis);
 
   ScreenHandler.ForceCompleteUpdate();
   DGUS_ECHOLNPGM("manmv done.");
