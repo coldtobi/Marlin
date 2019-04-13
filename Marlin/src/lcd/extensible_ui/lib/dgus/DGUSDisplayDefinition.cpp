@@ -139,7 +139,11 @@ const struct VPMapping VPMap[] PROGMEM = {
 const char MarlinVersion[] PROGMEM = SHORT_BUILD_VERSION;
 
 // Helper to define a DGUS_VP_Variable for common use cases.
-#define VPHELPER(VPADR, VPADRVAR, RXFPTR, TXFPTR ) { .VP=VPADR, .memadr=VPADRVAR, .size=sizeof(VPADRVAR), \
+#define VPHELPER(VPADR, VPADRVAR, RXFPTR, TXFPTR ) { .VP=VPADR, .memadr=&VPADRVAR, .size=sizeof(VPADRVAR), \
+  .set_by_display_handler = RXFPTR, .send_to_display_handler = TXFPTR }
+
+// When there is no variable to back up the data, but only a function...
+#define VPHELPER_VOID(VPADR, RXFPTR, TXFPTR ) { .VP=VPADR, .memadr=nullptr, .size=2, \
   .set_by_display_handler = RXFPTR, .send_to_display_handler = TXFPTR }
 
 // Helper to define a DGUS_VP_Variable when the sizeo of the var cannot be determined automaticalyl (eg. a string)
@@ -148,17 +152,17 @@ const char MarlinVersion[] PROGMEM = SHORT_BUILD_VERSION;
 
 const struct DGUS_VP_Variable ListOfVP[] PROGMEM = {
   // Helper to detect touch events
-  VPHELPER(VP_SCREENCHANGE, nullptr, DGUSScreenVariableHandler::ScreenChangeHook, nullptr),
-  VPHELPER(VP_SCREENCHANGE_ASK, nullptr, DGUSScreenVariableHandler::ScreenChangeHookIfIdle, nullptr),
-  VPHELPER(VP_SCREENCHANGE_WHENSD, nullptr, DGUSScreenVariableHandler::ScreenChangeHookIfSD, nullptr),
-  VPHELPER(VP_CONFIRMED, nullptr, DGUSScreenVariableHandler::ScreenConfirmedOK, nullptr),
+  VPHELPER_VOID(VP_SCREENCHANGE, DGUSScreenVariableHandler::ScreenChangeHook, nullptr),
+  VPHELPER_VOID(VP_SCREENCHANGE_ASK, DGUSScreenVariableHandler::ScreenChangeHookIfIdle, nullptr),
+  VPHELPER_VOID(VP_SCREENCHANGE_WHENSD, DGUSScreenVariableHandler::ScreenChangeHookIfSD, nullptr),
+  VPHELPER_VOID(VP_CONFIRMED, DGUSScreenVariableHandler::ScreenConfirmedOK, nullptr),
 
-  VPHELPER(VP_TEMP_ALL_OFF, nullptr, &DGUSScreenVariableHandler::HandleAllHeatersOff, nullptr),
+  VPHELPER_VOID(VP_TEMP_ALL_OFF, &DGUSScreenVariableHandler::HandleAllHeatersOff, nullptr),
 
-  VPHELPER(VP_MOVE_X, nullptr, &DGUSScreenVariableHandler::HandleManualMove, nullptr),
-  VPHELPER(VP_MOVE_Y, nullptr, &DGUSScreenVariableHandler::HandleManualMove, nullptr),
-  VPHELPER(VP_MOVE_Z, nullptr, &DGUSScreenVariableHandler::HandleManualMove, nullptr),
-  VPHELPER(VP_HOME_ALL, nullptr, &DGUSScreenVariableHandler::HandleManualMove, nullptr),
+  VPHELPER_VOID(VP_MOVE_X, &DGUSScreenVariableHandler::HandleManualMove, nullptr),
+  VPHELPER_VOID(VP_MOVE_Y, &DGUSScreenVariableHandler::HandleManualMove, nullptr),
+  VPHELPER_VOID(VP_MOVE_Z, &DGUSScreenVariableHandler::HandleManualMove, nullptr),
+  VPHELPER_VOID(VP_HOME_ALL, &DGUSScreenVariableHandler::HandleManualMove, nullptr),
 
   { .VP = VP_MARLIN_VERSION, .memadr = (void*)MarlinVersion, .size = VP_MARLIN_VERSION_LEN, .set_by_display_handler = nullptr, .send_to_display_handler =&DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM },
   // M117 LCD String (We don't need the string in memory but "just" push it to the display on demand, hence the nullptr
@@ -166,57 +170,57 @@ const struct DGUS_VP_Variable ListOfVP[] PROGMEM = {
 
   // Temperature Data
   #if HOTENDS >= 1
-    VPHELPER(VP_T_E1_Is, &thermalManager.temp_hotend[0].current, nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<0>),
-    VPHELPER(VP_T_E1_Set, &thermalManager.temp_hotend[0].target, DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
-    VPHELPER(VP_Flowrate_E1, nullptr, DGUSScreenVariableHandler::HandleFlowRateChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
-    VPHELPER(VP_EPos, &destination[3], nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<2>),
-    VPHELPER(VP_MOVE_E1, nullptr, &DGUSScreenVariableHandler::HandleManualExtrude, nullptr),
+    VPHELPER(VP_T_E1_Is, thermalManager.temp_hotend[0].current, nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<0>),
+    VPHELPER(VP_T_E1_Set, thermalManager.temp_hotend[0].target, DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
+    VPHELPER_VOID(VP_Flowrate_E1, DGUSScreenVariableHandler::HandleFlowRateChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
+    VPHELPER(VP_EPos, destination[3], nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<2>),
+    VPHELPER_VOID(VP_MOVE_E1, &DGUSScreenVariableHandler::HandleManualExtrude, nullptr),
     #endif
   #if HOTENDS >= 2
     VPHELPER(VP_T_E2_I, &thermalManager.temp_hotend[1].current, nullptr, DGUSLCD_SendFloatAsLongValueToDisplay<0>),
     VPHELPER(VP_T_E2_S, &thermalManager.temp_hotend[1].target, DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
-    VPHELPER(VP_Flowrate_E2, nullptr, DGUSScreenVariableHandler::HandleFlowRateChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
-    VPHELPER(VP_MOVE_E2, nullptr, &DGUSScreenVariableHandler::HandleManualExtrude, nullptr),
+    VPHELPER_VOID(VP_Flowrate_E2, DGUSScreenVariableHandler::HandleFlowRateChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
+    VPHELPER_VOID(VP_MOVE_E2, &DGUSScreenVariableHandler::HandleManualExtrude, nullptr),
   #endif
   #if HOTENDS >= 3
     #error More than 2 Hotends currently not implemented on the Display UI design.
   #endif
   #if HAS_HEATED_BED
-    VPHELPER(VP_T_Bed_Is, &thermalManager.temp_bed.current, nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<0>),
-    VPHELPER(VP_T_Bed_Set, &thermalManager.temp_bed.target, DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
+    VPHELPER(VP_T_Bed_Is, thermalManager.temp_bed.current, nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<0>),
+    VPHELPER(VP_T_Bed_Set, thermalManager.temp_bed.target, DGUSScreenVariableHandler::HandleTemperatureChanged, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay),
   #endif
 
   // Fan Data.
   #if FAN_COUNT > 0
-    VPHELPER(VP_Fan_Percentage, &thermalManager.fan_speed[0], DGUSScreenVariableHandler::DGUSLCD_PercentageToUint8, &DGUSScreenVariableHandler::DGUSLCD_SendPercentageToDisplay),
+    VPHELPER(VP_Fan_Percentage, thermalManager.fan_speed[0], DGUSScreenVariableHandler::DGUSLCD_PercentageToUint8, &DGUSScreenVariableHandler::DGUSLCD_SendPercentageToDisplay),
   #endif
 
   // Feedrate.
-  VPHELPER(VP_Feedrate_Percentage, &feedrate_percentage, DGUSScreenVariableHandler::DGUSLCD_SetValueDirectly<int16_t>, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay ),
+  VPHELPER(VP_Feedrate_Percentage, feedrate_percentage, DGUSScreenVariableHandler::DGUSLCD_SetValueDirectly<int16_t>, &DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay ),
 
   // Position Data.
-  VPHELPER(VP_XPos, &current_position[0], nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<2>),
-  VPHELPER(VP_YPos, &current_position[1], nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<2>),
-  VPHELPER(VP_ZPos, &current_position[2], nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<2>),
+  VPHELPER(VP_XPos, destination[0], nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<2>),
+  VPHELPER(VP_YPos, destination[1], nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<2>),
+  VPHELPER(VP_ZPos, destination[2], nullptr, DGUSScreenVariableHandler::DGUSLCD_SendFloatAsLongValueToDisplay<2>),
 
   // Print Progress.
-  VPHELPER(VP_PrintProgress_Percentage, &MarlinUI::progress_bar_percent, nullptr, DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay ),
+  VPHELPER(VP_PrintProgress_Percentage, MarlinUI::progress_bar_percent, nullptr, DGUSScreenVariableHandler::DGUSLCD_SendWordValueToDisplay ),
 
   // Print Time
   VPHELPER_STR(VP_PrintTime, nullptr, VP_PrintTime_LEN, nullptr, DGUSScreenVariableHandler::DGUSLCD_SendPrintTimeToDisplay ),
 
   // SDCard File listing.
   #if ENABLED(SDSUPPORT)
-    VPHELPER(VP_SD_ScrollEvent, nullptr, DGUSScreenVariableHandler::DGUSLCD_SD_ScrollFilelist, nullptr),
-    VPHELPER(VP_SD_FileSelected, nullptr, DGUSScreenVariableHandler::DGUSLCD_SD_FileSelected, nullptr),
-    VPHELPER(VP_SD_FileSelectConfirm, nullptr, DGUSScreenVariableHandler::DGUSLCD_SD_StartPrint, nullptr),
+    VPHELPER_VOID(VP_SD_ScrollEvent, DGUSScreenVariableHandler::DGUSLCD_SD_ScrollFilelist, nullptr),
+    VPHELPER_VOID(VP_SD_FileSelected, DGUSScreenVariableHandler::DGUSLCD_SD_FileSelected, nullptr),
+    VPHELPER_VOID(VP_SD_FileSelectConfirm, DGUSScreenVariableHandler::DGUSLCD_SD_StartPrint, nullptr),
     VPHELPER_STR(VP_SD_FileName0,  nullptr, VP_SD_FileName_LEN, nullptr, DGUSScreenVariableHandler::DGUSLCD_SD_SendFilename ),
     VPHELPER_STR(VP_SD_FileName1,  nullptr, VP_SD_FileName_LEN, nullptr, DGUSScreenVariableHandler::DGUSLCD_SD_SendFilename ),
     VPHELPER_STR(VP_SD_FileName2,  nullptr, VP_SD_FileName_LEN, nullptr, DGUSScreenVariableHandler::DGUSLCD_SD_SendFilename ),
     VPHELPER_STR(VP_SD_FileName3,  nullptr, VP_SD_FileName_LEN, nullptr, DGUSScreenVariableHandler::DGUSLCD_SD_SendFilename ),
     VPHELPER_STR(VP_SD_FileName4,  nullptr, VP_SD_FileName_LEN, nullptr, DGUSScreenVariableHandler::DGUSLCD_SD_SendFilename ),
-    VPHELPER(VP_SD_ResumePauseAbort, nullptr, DGUSScreenVariableHandler::DGUSLCD_SD_ResumePauseAbort, nullptr),
-    VPHELPER(VP_SD_AbortPrintConfirmed, nullptr, DGUSScreenVariableHandler::DGUSLCD_SD_ReallyAbort, nullptr),
+    VPHELPER_VOID(VP_SD_ResumePauseAbort, DGUSScreenVariableHandler::DGUSLCD_SD_ResumePauseAbort, nullptr),
+    VPHELPER_VOID(VP_SD_AbortPrintConfirmed, DGUSScreenVariableHandler::DGUSLCD_SD_ReallyAbort, nullptr),
   #endif
 
   // Messages for the User, shared by the popup and the kill screen. They cant be autouploaded as we do not buffer content.
@@ -225,7 +229,7 @@ const struct DGUS_VP_Variable ListOfVP[] PROGMEM = {
   { .VP = VP_MSGSTR3, .memadr = nullptr, .size = VP_MSGSTR3_LEN, .set_by_display_handler = nullptr, .send_to_display_handler = &DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM },
   { .VP = VP_MSGSTR4, .memadr = nullptr, .size = VP_MSGSTR4_LEN, .set_by_display_handler = nullptr, .send_to_display_handler = &DGUSScreenVariableHandler::DGUSLCD_SendStringToDisplayPGM },
 
-  VPHELPER(0, 0, 0, 0)  // must be last entry.
+  { .VP = 0, .memadr = nullptr, .size = 0, .set_by_display_handler = nullptr, .send_to_display_handler = nullptr },
 };
 
 #endif // DGUS_LCD
